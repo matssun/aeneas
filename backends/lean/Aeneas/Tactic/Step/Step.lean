@@ -411,7 +411,14 @@ def getBindVarNames : TacticM (Array (Option Name)) := do
     let goalTy ← (← getMainGoal).getType
     let goalTy ← instantiateMVars goalTy
     forallTelescope goalTy fun _ goalTy => do
-    let_expr Std.WP.spec _ m _ := goalTy | return #[]
+    let m ← goalTy.consumeMData.withApp fun spec? args => do
+      let some specName := spec?.constName? | return none
+      let some info ← specInfoLookup specName | return none
+      if args.size = info.arity then
+        return some args[info.program_index]!
+      else
+        return none
+    let some m := m | return #[]
     let_expr Bind.bind _ _ _ _ _ cont := m | return #[]
     getPostNames cont
   catch _ => pure #[]
@@ -544,9 +551,16 @@ def tryMatch (info : SpecInfo) (lifting : Option LiftingInfo) (isLet : Bool) (th
   let specMonoBindTy ← inferType specMonoBind
   trace[Step] "Applied specMonoBind with theorem: {specMonoBind}: {specMonoBindTy}"
 
-  let (specMonoBindMVars, _, specMonoBindTy) ← forallMetaBoundedTelescope specMonoBindTy 1
-  if (specMonoBindMVars.size ≠ 1) then throwError "Unreachable"
-  let ngoal := specMonoBindMVars[0]!.mvarId!
+  let numPreconditions :=
+    if isLet then info.mk_spec_bind_preconditions
+    else info.mk_spec_mono_preconditions
+  let numPremises := numPreconditions + 1
+  let (specMonoBindMVars, _, specMonoBindTy) ←
+    forallMetaBoundedTelescope specMonoBindTy numPremises
+  if specMonoBindMVars.size ≠ numPremises then
+    throwError "Expected {numPremises} premises after applying the step theorem, \
+      found {specMonoBindMVars.size}"
+  let ngoal := specMonoBindMVars.back!.mvarId!
   let specMonoBind ← mkAppOptM' specMonoBind (specMonoBindMVars.map some)
   trace[Step] "Applied specMonoBind with theorem: {specMonoBind}: {specMonoBindTy}"
 
@@ -565,7 +579,9 @@ def tryMatch (info : SpecInfo) (lifting : Option LiftingInfo) (isLet : Bool) (th
   mgoal.assign specMonoBind
   trace[Step] "New goal: {ngoal}"
 
-  let mvarsIds := mvars.map Expr.mvarId!
+  let extraPreconditions :=
+    specMonoBindMVars.take numPreconditions |>.map Expr.mvarId!
+  let mvarsIds := mvars.map Expr.mvarId! ++ extraPreconditions
   let mvarsIds ← mvarsIds.filterM (fun mvar => do pure (not (← mvar.isAssigned)))
 
   -- Attempt to resolve the typeclass instances
@@ -586,6 +602,10 @@ def introPrettyEquality (args : Args) (fExpr : Expr) (outputFVars : Array Expr) 
   trace[Step] "fExpr: {fExpr},\noutputFVars: {outputFVars}"
   let some name := args.keepPretty
     | return
+  let fType ← whnf (← inferType fExpr)
+  unless fType.getAppFn.isConstOf ``Std.Result do
+    trace[Step] "Skipping the pretty equality for a non-`Std.Result` computation"
+    return
   -- Construct the tuple of outputs
   let pat ← mkProdsVal outputFVars.toList
   trace[Step] "Constructed the pattern: {pat}"
