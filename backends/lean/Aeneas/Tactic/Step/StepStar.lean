@@ -389,13 +389,16 @@ inductive TargetKind where
 def analyzeTarget : TacticM TargetKind := do
   withTraceNode `Step (fun _ => do pure m!"analyzeTarget") do
   try
-    let goalTy ← (← getMainGoal).getType
+    /- We need to instantiate the meta-variables: the goal may have been produced by
+       an `apply` (e.g., `apply triple_hpure`), in which case the program is an assigned
+       meta-variable, and we would fail to see through it. -/
+    let goalTy ← instantiateMVars (← (← getMainGoal).getType)
     -- Dive into a registered specification statement.
     goalTy.consumeMData.withApp fun spec? args => do
     let some specName := spec?.constName? | return .result
     let some info ← specInfoLookup specName | return .result
     unless args.size = info.arity do return .result
-    let program := args[info.program_index]!
+    let program ← instantiateMVars args[info.program_index]!
     let e ← Utils.normalizeLetBindings program
     if let .const ``Bind.bind .. := e.getAppFn then
       let #[_m, _self, _α, _β, _value, cont] := e.getAppArgs
