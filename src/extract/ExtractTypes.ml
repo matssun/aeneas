@@ -287,20 +287,19 @@ let extract_const_generic (span : Meta.span) (ctx : extraction_ctx)
       let s = ctx_get_const_generic_var span origin id ctx in
       F.pp_print_string fmt s
 
+(** The name comes from {!Correspondence}, which records the Rust <-> Lean pair
+    as a side effect of producing it.
+
+    This function used to hold the mapping itself — a [match] arm per primitive,
+    with [Std.] prefixed inline. That made the correspondence a property of the
+    pretty-printer and nothing else, so there was no object to export and a
+    downstream consumer could not state that [Std.U32] stands for [u32]. Moving
+    the mapping out is not a refactor for tidiness: an exported table sitting
+    beside a printer that still decided for itself would be a second copy, free
+    to drift. There is one call, and it both prints and records. *)
 let extract_literal_type (_ctx : extraction_ctx) (fmt : F.formatter)
     (ty : literal_type) : unit =
-  match ty with
-  | TBool -> F.pp_print_string fmt (bool_name ())
-  | TChar -> F.pp_print_string fmt (char_name ())
-  | TInt int_ty ->
-      let prefix = if backend () = Lean then "Std." else "" in
-      F.pp_print_string fmt (prefix ^ int_name (Signed int_ty))
-  | TUInt int_ty ->
-      let prefix = if backend () = Lean then "Std." else "" in
-      F.pp_print_string fmt (prefix ^ int_name (Unsigned int_ty))
-  | TFloat float_ty -> F.pp_print_string fmt (float_name float_ty)
-  | TPureNat -> F.pp_print_string fmt "ℕ"
-  | TPureInt -> F.pp_print_string fmt "ℤ"
+  F.pp_print_string fmt (Correspondence.lean_name_of_literal_type ty)
 
 (** [inside] constrols whether we should add parentheses or not around type
     applications (if [true] we add parentheses).
@@ -763,7 +762,16 @@ let extract_type_decl_register_names (ctx : extraction_ctx) (def : type_decl) :
   let def_name =
     match def.builtin_info with
     | None -> ctx_compute_type_decl_name ctx def
-    | Some info -> info.extract_name
+    | Some info ->
+        (* The single site where a builtin TYPE's Rust identity meets the Lean
+           name standing for it. Recorded here rather than by walking the
+           builtin table, so the evidence says what this translation applied:
+           a crate that never mentions `core::result::Result` must not claim it
+           as part of its semantic basis. *)
+        Correspondence.record_builtin ~kind:Correspondence.BuiltinType
+          ~rust_name:(name_to_string ctx def.item_meta.name)
+          ~lean_name:info.extract_name;
+        info.extract_name
   in
   let ctx = ctx_add span (TypeId (TAdtId def.def_id)) def_name ctx in
   (* Compute and register:

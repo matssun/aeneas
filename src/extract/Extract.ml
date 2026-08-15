@@ -56,6 +56,12 @@ let extract_fun_decl_register_names (ctx : extraction_ctx)
       in
       let f = def.f in
       let fun_id = (Pure.FunId (FRegular f.def_id), f.loop_id) in
+      (* The single site where a builtin FUNCTION's Rust identity meets the
+         Lean name standing for it — see the type-side twin in
+         `ExtractTypes.extract_type_decl_register_names`. *)
+      Correspondence.record_builtin ~kind:Correspondence.BuiltinFun
+        ~rust_name:(name_to_string ctx f.item_meta.name)
+        ~lean_name:info.extract_name;
       ctx_add f.item_meta.span (FunId (FromLlbc fun_id)) info.extract_name ctx
   | None ->
       (* Not builtin *)

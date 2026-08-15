@@ -93,6 +93,27 @@ type trait_impl_entry = {
 }
 [@@deriving to_yojson]
 
+(** One Rust entity <-> generated Lean entity pair that this translation
+    actually applied, from {!Correspondence}.
+
+    These are the correspondences Aeneas implements INTRINSICALLY — primitive
+    types it is built around, and builtin patterns it substitutes — as opposed
+    to the declarations it translates, which the sections above already report.
+    Without them a consumer can see that the generated Lean mentions
+    [Std.U32] and cannot learn that it stands for Rust [u32].
+
+    [kind] is carried because the trust question differs: a [builtin_fun] is a
+    hand-written Lean model standing in for an implementation, while a
+    [primitive] is the representation choice the backend is built around. A
+    consumer that collapsed them would be unable to say which of its basis is
+    modelled and which is structural. *)
+type correspondence_entry = {
+  rust_name : string;  (** Charon's spelling, so an LLBC join needs no rule. *)
+  lean_name : string;  (** The name the translation printed. *)
+  kind : string;  (** [primitive] | [builtin_type] | [builtin_fun]. *)
+}
+[@@deriving to_yojson]
+
 type envelope = {
   aeneas_version : string;
   charon_version : string;
@@ -104,6 +125,9 @@ type envelope = {
   globals : global_entry list;
   trait_decls : trait_decl_entry list;
   trait_impls : trait_impl_entry list;
+  correspondences : correspondence_entry list;
+      (** Intrinsic Rust <-> Lean correspondences applied by this translation.
+          Not a dump of the builtin tables: only what was used. *)
 }
 [@@deriving to_yojson]
 
@@ -337,6 +361,19 @@ let write_if_enabled ~(crate_name : string) : string option =
         globals = List.rev state.global_entries;
         trait_decls = List.rev state.trait_decl_entries;
         trait_impls = List.rev state.trait_impl_entries;
+        (* Read straight from the accumulator the TRANSLATION wrote. There is
+           no second traversal and no table walk here: if this list and the
+           generated Lean ever disagreed, it would have to be because one
+           function returned two different answers. *)
+        correspondences =
+          List.map
+            (fun (c : Correspondence.t) ->
+              {
+                rust_name = c.rust_name;
+                lean_name = c.lean_name;
+                kind = Correspondence.kind_to_string c.kind;
+              })
+            (Correspondence.applied_correspondences ());
       };
     Some path
   end
