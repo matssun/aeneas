@@ -107,8 +107,34 @@ type trait_impl_entry = {
     [primitive] is the representation choice the backend is built around. A
     consumer that collapsed them would be unable to say which of its basis is
     modelled and which is structural. *)
+(** Where a builtin correspondence's Rust side lives in the LLBC. *)
+type rust_declaration_identity = {
+  section : string;  (** [function] | [type] *)
+  def_id : int;
+  file : string;
+  begin_line : int;
+}
+[@@deriving to_yojson]
+
 type correspondence_entry = {
-  rust_name : string;  (** Charon's spelling, so an LLBC join needs no rule. *)
+  rust_def : rust_declaration_identity option;
+      (** {b The Rust-side identity, for a builtin.} Charon's own id, which is
+          what a consumer must join on. [null] for a primitive, which is not a
+          declaration and has no id — its identity is [rust_primitive] below.
+
+          The span is carried so an id join can be checked against a second
+          producer fact rather than trusted, the same discipline the
+          declaration sections above follow. *)
+  rust_primitive : string option;
+      (** {b The Rust-side identity, for a primitive.} Charon's spelling of the
+          literal type. [null] for a builtin. *)
+  rust_rendered_by_aeneas : string;
+      (** Provenance only, and kept precisely because it DISAGREES with
+          Charon's rendering of the same declaration
+          ([{impl core::cmp::Ord for u32}::cmp] against
+          [impl_Ord_for_u32::cmp], on 5 of 16 entries in the first crate this
+          was measured on). If those five join while these strings still
+          differ, nothing is matching on presentation. **Never a key.** *)
   (* No [@default None]: an explicit `null` says "considered, and the producer
      cannot state one", where an absent field says nothing at all. *)
   lean_canonical_name : string list option;
@@ -393,7 +419,22 @@ let write_if_enabled ~(crate_name : string) : string option =
           List.map
             (fun (c : Correspondence.t) ->
               {
-                rust_name = c.rust_name;
+                rust_def =
+                  (match c.rust_identity with
+                  | Correspondence.Declaration d ->
+                      Some
+                        {
+                          section = d.section;
+                          def_id = d.def_id;
+                          file = d.source_file;
+                          begin_line = d.source_begin_line;
+                        }
+                  | Correspondence.PrimitiveType _ -> None);
+                rust_primitive =
+                  (match c.rust_identity with
+                  | Correspondence.PrimitiveType p -> Some p.spelling
+                  | Correspondence.Declaration _ -> None);
+                rust_rendered_by_aeneas = c.rust_rendered_by_aeneas;
                 lean_canonical_name = c.lean_canonical_name;
                 lean_scope_namespaces = c.lean_scope_namespaces;
                 lean_rendered_name = c.lean_rendered_name;

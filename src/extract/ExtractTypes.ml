@@ -770,7 +770,9 @@ let extract_type_decl_register_names (ctx : extraction_ctx) (def : type_decl) :
            as part of its semantic basis. *)
         Correspondence.record_builtin ~kind:Correspondence.BuiltinType
           ~rust_name:(name_to_string ctx def.item_meta.name)
-          ~extract_name:info.extract_name;
+          ~extract_name:info.extract_name ~section:"type"
+          ~def_id:(Pure.TypeDeclId.to_int def.def_id)
+          ~span:def.item_meta.span;
         info.extract_name
   in
   let ctx = ctx_add span (TypeId (TAdtId def.def_id)) def_name ctx in

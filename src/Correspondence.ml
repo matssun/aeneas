@@ -127,13 +127,50 @@ let kind_to_string (k : kind) : string =
   | BuiltinType -> "builtin_type"
   | BuiltinFun -> "builtin_fun"
 
+(** How the Rust side of a correspondence is identified.
+
+    Two populations, and the difference is not cosmetic. A builtin stands for a
+    DECLARATION that exists in the LLBC, so it has the compiler's own id and
+    that id is what a consumer should join on. A primitive is not a declaration
+    at all — there is no `u32` decl to point at — so its identity is Charon's
+    spelling of the literal type, which both sides already produce with the
+    same printer.
+
+    Rendered names are NOT identity. Aeneas and Charon render the same
+    declaration differently (`{impl core::cmp::Ord for u32}::cmp` against
+    `impl_Ord_for_u32::cmp`), so a consumer joining on the rendering drops
+    exactly the trait impls — measured at 5 of 16 on the first crate this was
+    tried against. *)
+type rust_identity =
+  | Declaration of {
+      section : string;  (** [function] | [type] *)
+      def_id : int;  (** Charon's id, reified. THE join key. *)
+      source_file : string;
+      source_begin_line : int;
+          (** An independent producer fact about the same declaration, so a
+              consumer can check the id join rather than trust it — the same
+              discipline `EmitJson` applies to translated declarations. *)
+    }
+  | PrimitiveType of { spelling : string }
+      (** Charon's spelling of the literal type. Not a declaration. *)
+
 type t = {
-  rust_name : string;
+  rust_identity : rust_identity;
+  rust_rendered_by_aeneas : string;
+      (** Provenance and diagnostics only. Kept precisely BECAUSE it disagrees
+          with Charon's rendering: if the five known-divergent entries join
+          while these strings still differ, nothing is matching on
+          presentation. *)
   lean_rendered_name : string;
   lean_scope_namespaces : string list list;
   lean_canonical_name : string list option;
   kind : kind;
 }
+
+let rust_identity_key (id : rust_identity) : string =
+  match id with
+  | Declaration { section; def_id; _ } -> section ^ "#" ^ string_of_int def_id
+  | PrimitiveType { spelling } -> "primitive#" ^ spelling
 
 (* ------------------------------------------------------------------------ *)
 (* The Lean namespaces, as data                                             *)
@@ -184,7 +221,7 @@ let record (c : t) : unit =
         String.concat "|"
           (c.lean_rendered_name :: List.map dotted c.lean_scope_namespaces)
   in
-  let key = (kind_to_string c.kind, c.rust_name, identity) in
+  let key = (kind_to_string c.kind, rust_identity_key c.rust_identity, identity) in
   if not (Hashtbl.mem applied key) then Hashtbl.add applied key c
 
 (** Every correspondence this translation actually applied, sorted so the
@@ -193,7 +230,7 @@ let applied_correspondences () : t list =
   Hashtbl.fold (fun _ c acc -> c :: acc) applied []
   |> List.sort (fun a b ->
          match compare (kind_to_string a.kind) (kind_to_string b.kind) with
-         | 0 -> compare a.rust_name b.rust_name
+         | 0 -> compare (rust_identity_key a.rust_identity) (rust_identity_key b.rust_identity)
          | c -> c)
 
 (* ------------------------------------------------------------------------ *)
@@ -265,7 +302,8 @@ let lean_name_of_literal_type (ty : literal_type) : string =
          | Some rust_name ->
              record
                {
-                 rust_name;
+                 rust_identity = PrimitiveType { spelling = rust_name };
+                 rust_rendered_by_aeneas = rust_name;
                  lean_rendered_name = rendered;
                  lean_scope_namespaces = lean_opened_namespaces;
                  (* The SAME flag that chose the rendering chooses the
@@ -298,13 +336,32 @@ let lean_name_of_literal_type (ty : literal_type) : string =
     is recorded nowhere — see the module header for the measurement showing it
     goes both ways. What IS emitted is the qualified reference: the rendering
     plus the scope it was written in, which the producer knows exactly and
-    which Lean can resolve unambiguously. *)
+    which Lean can resolve unambiguously.
+
+    The Rust side carries the LLBC [def_id] and the declaration's span. The
+    rendered Rust name is kept beside them as provenance and is not identity:
+    Aeneas and Charon render the same declaration differently, so a consumer
+    that joined on the rendering would drop every trait impl. *)
 let record_builtin ~(kind : kind) ~(rust_name : string)
-    ~(extract_name : string) : unit =
+    ~(extract_name : string) ~(section : string) ~(def_id : int)
+    ~(span : Meta.span) : unit =
   if backend () = Lean then
+    let data = span.data in
+    let source_file =
+      match data.file.name with
+      | Virtual s | Local s | NotReal s -> s
+    in
     record
       {
-        rust_name;
+        rust_identity =
+          Declaration
+            {
+              section;
+              def_id;
+              source_file;
+              source_begin_line = data.beg_loc.line;
+            };
+        rust_rendered_by_aeneas = rust_name;
         lean_rendered_name = extract_name;
         lean_scope_namespaces = lean_opened_namespaces;
         lean_canonical_name = None;
