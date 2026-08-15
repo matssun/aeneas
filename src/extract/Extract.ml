@@ -61,7 +61,7 @@ let extract_fun_decl_register_names (ctx : extraction_ctx)
          `ExtractTypes.extract_type_decl_register_names`. *)
       Correspondence.record_builtin ~kind:Correspondence.BuiltinFun
         ~rust_name:(name_to_string ctx f.item_meta.name)
-        ~lean_name:info.extract_name;
+        ~extract_name:info.extract_name;
       ctx_add f.item_meta.span (FunId (FromLlbc fun_id)) info.extract_name ctx
   | None ->
       (* Not builtin *)

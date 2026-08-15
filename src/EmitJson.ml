@@ -109,7 +109,31 @@ type trait_impl_entry = {
     modelled and which is structural. *)
 type correspondence_entry = {
   rust_name : string;  (** Charon's spelling, so an LLBC join needs no rule. *)
-  lean_name : string;  (** The name the translation printed. *)
+  (* No [@default None]: an explicit `null` says "considered, and the producer
+     cannot state one", where an absent field says nothing at all. *)
+  lean_canonical_name : string list option;
+      (** {b The identity, where the producer can state one.} The absolute Lean
+          declaration this translation intends to reference, as components. A
+          producer DECLARATION, not a resolver result: Aeneas does not run
+          Lean's resolver, so a consumer should look each one up and treat one
+          that resolves to nothing as a measurable producer defect.
+
+          [null] for builtins. Their [extract_name] is a bare string with no
+          namespace and denotes an Aeneas declaration or a Lean-core one
+          depending on the entry — [core.result.Result] is
+          [Aeneas.Std.core.result.Result] while [Option] and [Ordering] are
+          Lean's own. Asserting a prefix for all of them would be wrong for
+          most; resolve the qualified reference below instead. *)
+  lean_scope_namespaces : string list list;
+      (** The namespaces open where [lean_rendered_name] was written. Together
+          they form a complete qualified reference that Lean can resolve
+          unambiguously, and the producer knows it exactly. *)
+  lean_rendered_name : string;
+      (** {b Presentation.} The text that appeared in the generated file, which
+          resolves only under that file's [open] clauses. Provenance and
+          debugging. **Never a join key** — changing which namespaces are
+          opened changes this without changing the correspondence's identity,
+          and semantic evidence must not be invalidated by that. *)
   kind : string;  (** [primitive] | [builtin_type] | [builtin_fun]. *)
 }
 [@@deriving to_yojson]
@@ -370,7 +394,9 @@ let write_if_enabled ~(crate_name : string) : string option =
             (fun (c : Correspondence.t) ->
               {
                 rust_name = c.rust_name;
-                lean_name = c.lean_name;
+                lean_canonical_name = c.lean_canonical_name;
+                lean_scope_namespaces = c.lean_scope_namespaces;
+                lean_rendered_name = c.lean_rendered_name;
                 kind = Correspondence.kind_to_string c.kind;
               })
             (Correspondence.applied_correspondences ());
