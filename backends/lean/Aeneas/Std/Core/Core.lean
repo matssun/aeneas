@@ -12,6 +12,17 @@ open Result
 
 attribute [rust_type "core::option::Option" -prefixVariantNames] Option
 
+/- ATTRIBUTION CONTROL, CodeGraphite CGR-M2 slice 7 / C3.
+
+   An unused correspondence. It moves this producer's revision AND its
+   correspondence tables, while naming a Rust path that exists in no crate, so
+   it can never be applied to any subject. That is the point: it separates
+   "the producer changed" from "what this proof consumes changed".
+
+   Not upstream material. -/
+@[rust_fun "cg_attribution_control::never_applied" -canFail]
+def cg.attributionControl.neverApplied (x : Bool) : Bool := x
+
 @[rust_fun "alloc::boxed::{core::convert::AsMut<Box<@T>, @T>}::as_mut" -canFail (keepParams := [true,false])]
 def alloc.boxed.AsMutBox.as_mut {T : Type} (x : T) : T × (T → T) :=
   (x, fun x => x)
