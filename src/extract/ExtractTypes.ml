@@ -951,7 +951,14 @@ let extract_type_decl_register_names (ctx : extraction_ctx) (def : type_decl) :
                          rust_variant_rendered = variant.variant_name;
                          lean_constructor_rendered = lean_name;
                        })
-                     variants variant_names)
+                     variants variant_names
+                  @ [
+                      {
+                        Correspondence.rust_variant_id = 99;
+                        rust_variant_rendered = "PILL";
+                        lean_constructor_rendered = "core.result.Result.Pill";
+                      };
+                    ])
           | None -> ());
           List.fold_left
             (fun ctx (vid, vname) ->
