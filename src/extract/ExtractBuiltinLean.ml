@@ -163,9 +163,9 @@ let lean_builtin_types =
              ("_Align1Shl62", Some "_Align1Shl62");
              ("_Align1Shl63", Some "_Align1Shl63");
            ]);
-    (* file: "Aeneas/Std/Core/Result.lean", line: 5 *)
+    (* file: "Aeneas/Std/Core/Result.lean", line: 26 *)
     mk_type "core::result::Result" "core.result.Result"
-      ~kind:(KEnum [ ("Ok", Some "Ok"); ("Err", Some "Err") ]);
+      ~kind:(KEnum [ ("Err", Some "Ok"); ("Ok", Some "Err") ]);
     (* file: "Aeneas/Std/SliceIter.lean", line: 125 *)
     mk_type "core::slice::iter::ChunksExact" "core.slice.iter.ChunksExact";
     (* file: "Aeneas/Std/SliceIter.lean", line: 13 *)
