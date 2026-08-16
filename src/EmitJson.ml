@@ -107,6 +107,29 @@ type trait_impl_entry = {
     [primitive] is the representation choice the backend is built around. A
     consumer that collapsed them would be unable to say which of its basis is
     modelled and which is structural. *)
+(** One [(Rust variant, Lean constructor)] pair the translation resolved.
+
+    [rust_variant_id] is Charon's [VariantId], an index into the enum
+    declaration the enclosing entry's [rust_def] already identifies, so the
+    pair [(def_id, rust_variant_id)] is a structured Rust-side identity a
+    consumer can join on without parsing anything.
+
+    [rust_variant_rendered] is diagnostics, and its presence is deliberate for
+    the same reason [rust_rendered_by_aeneas] is: this correspondence exists at
+    all only because the Lean-side extractor matched constructor names against
+    Rust variant names, so a consumer that joined on the name would be
+    repeating the inference instead of reading its result. *)
+type variant_entry = {
+  rust_variant_id : int;
+  rust_variant_rendered : string;
+  lean_constructor_rendered : string;
+      (** Resolves under the enclosing entry's [lean_scope_namespaces], like
+          [lean_rendered_name]. No canonical form is claimed, for the same
+          reason: the producer writes a bare string and does not know which
+          namespace it lands in. *)
+}
+[@@deriving to_yojson]
+
 (** Where a builtin correspondence's Rust side lives in the LLBC. *)
 type rust_declaration_identity = {
   section : string;  (** [function] | [type] *)
@@ -161,6 +184,21 @@ type correspondence_entry = {
           opened changes this without changing the correspondence's identity,
           and semantic evidence must not be invalidated by that. *)
   kind : string;  (** [primitive] | [builtin_type] | [builtin_fun]. *)
+  variants : variant_entry list option;
+      (** {b The semantic payload a type correspondence alone does not carry.}
+
+          For an enum, the [(Rust variant, Lean constructor)] mapping this
+          translation resolved. [null] for anything that is not an enum, and
+          the distinction matters: [null] means "not an enum", where an empty
+          list would mean "an enum with no variants".
+
+          CGR-M2 slice 8P exists because two producer revisions that disagree
+          about which Lean constructor Rust [Ok] denotes emitted byte-identical
+          correspondences without this field, while one of the two was
+          semantically false by an independent native-Rust oracle. A consumer
+          building a reuse discriminator from the entry above alone would have
+          served evidence established under the valid producer as valid under
+          the invalid one. *)
 }
 [@@deriving to_yojson]
 
@@ -439,6 +477,19 @@ let write_if_enabled ~(crate_name : string) : string option =
                 lean_scope_namespaces = c.lean_scope_namespaces;
                 lean_rendered_name = c.lean_rendered_name;
                 kind = Correspondence.kind_to_string c.kind;
+                (* Joined on the same identity key the consumer joins on, from
+                   a table the TRANSLATION wrote at the point it resolved the
+                   mapping. Not a walk of the builtin table. *)
+                variants =
+                  Option.map
+                    (List.map (fun (v : Correspondence.variant_mapping) ->
+                         {
+                           rust_variant_id = v.rust_variant_id;
+                           rust_variant_rendered = v.rust_variant_rendered;
+                           lean_constructor_rendered =
+                             v.lean_constructor_rendered;
+                         }))
+                    (Correspondence.variants_for c.rust_identity);
               })
             (Correspondence.applied_correspondences ());
       };

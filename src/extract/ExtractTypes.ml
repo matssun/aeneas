@@ -890,12 +890,26 @@ let extract_type_decl_register_names (ctx : extraction_ctx) (def : type_decl) :
                   variants
             | Some { body_info = Some (Enum variant_infos); _ } ->
                 (* We need to compute the map from variant to variant *)
+                (* Built with an explicit duplicate check rather than
+                   [StringMap.of_list], which silently keeps one entry when a
+                   Rust variant name appears twice. That is precedence deciding
+                   a semantic correspondence, and this pipeline refuses that
+                   shape everywhere else it occurs — see
+                   [index_correspondences] at the declaration bridge. CGR-M2
+                   slice 8P falsifier F5. *)
                 let variant_map =
-                  StringMap.of_list
-                    (List.map
-                       (fun (info : builtin_enum_variant_info) ->
-                         (info.rust_variant_name, info.extract_variant_name))
-                       variant_infos)
+                  List.fold_left
+                    (fun acc (info : builtin_enum_variant_info) ->
+                      if StringMap.mem info.rust_variant_name acc then
+                        [%craise] span
+                          ("Two builtin variant correspondences for Rust \
+                            variant `" ^ info.rust_variant_name ^ "` of type "
+                          ^ name_to_string ctx def.item_meta.name
+                          ^ "; refusing to pick one")
+                      else
+                        StringMap.add info.rust_variant_name
+                          info.extract_variant_name acc)
+                    StringMap.empty variant_infos
                 in
                 VariantId.mapi
                   (fun variant_id (variant : variant) ->
@@ -908,6 +922,37 @@ let extract_type_decl_register_names (ctx : extraction_ctx) (def : type_decl) :
                   ^ ": expected builtin information about an enumeration, got:\n"
                   ^ show_builtin_type_info info)
           in
+          (* The applied variant correspondence, recorded from the SAME list
+             the context registration below consumes. CGR-M2 slice 8P.
+
+             Not a second traversal of the builtin table: [variant_names] is
+             the value the translation resolved and is about to print through,
+             so evidence and translation cannot disagree without the printed
+             names changing too. There is no path from
+             [builtin_enum_variant_info] to emitted evidence that bypasses
+             this list, which is what makes falsifier F2 — swap ONLY the
+             exported mapping — impossible by construction rather than merely
+             untested.
+
+             Builtins only, and that is a scope limit rather than a judgement:
+             a TRANSLATED enum's variant mapping is equally a semantic
+             correspondence and is equally unreported. Slice 8P's acceptance is
+             about `core::result::Result`; extending this to translated enums
+             wants its own falsifier. *)
+          (match def.builtin_info with
+          | Some _ ->
+              Correspondence.record_variants ~section:"type"
+                ~def_id:(Pure.TypeDeclId.to_int def.def_id)
+                ~variants:
+                  (List.map2
+                     (fun (variant : variant) (vid, lean_name) ->
+                       {
+                         Correspondence.rust_variant_id = VariantId.to_int vid;
+                         rust_variant_rendered = variant.variant_name;
+                         lean_constructor_rendered = lean_name;
+                       })
+                     variants variant_names)
+          | None -> ());
           List.fold_left
             (fun ctx (vid, vname) ->
               ctx_add span (VariantId (TAdtId def.def_id, vid)) vname ctx)

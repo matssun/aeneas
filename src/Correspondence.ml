@@ -71,12 +71,11 @@
     that never happened.
 
     It is [None] for builtins, and that is a measurement rather than laziness.
-    {!Pure.builtin_type_info} and {!Pure.builtin_fun_info} carry
-    [extract_name] as a bare string with no namespace, because it is written
-    into a file and left to resolve under that file's opens. Whether it denotes
-    an Aeneas declaration or a Lean-core one is not recorded anywhere, and it
-    genuinely goes both ways — measured in the environment that checks these
-    proofs:
+    {!Pure.builtin_type_info} and {!Pure.builtin_fun_info} carry [extract_name]
+    as a bare string with no namespace, because it is written into a file and
+    left to resolve under that file's opens. Whether it denotes an Aeneas
+    declaration or a Lean-core one is not recorded anywhere, and it genuinely
+    goes both ways — measured in the environment that checks these proofs:
 
     {v
     core::result::Result  -> "core.result.Result"  Aeneas.Std.core.result.Result
@@ -85,8 +84,8 @@
     v}
 
     A producer that asserted [Aeneas.Std ++ extract_name] for all of them would
-    be wrong for two of the three, and the first version of this module was:
-    the resolution check caught [Aeneas.Std.Option], [Aeneas.Std.Ordering] and
+    be wrong for two of the three, and the first version of this module was: the
+    resolution check caught [Aeneas.Std.Option], [Aeneas.Std.Ordering] and
     [Aeneas.Std.Bool] as MISSING on its first run. Emitting [None] and letting
     the consumer resolve the qualified reference through Lean puts the answer
     where the authority is, and keeps the producer's claim to what it knows.
@@ -105,8 +104,8 @@
     v}
 
     One function, one value, both uses. [extract_literal_type] must not compute
-    a primitive's Lean name any other way, and there is no other way exposed.
-    An attempt to make translation and export disagree has to begin by adding a
+    a primitive's Lean name any other way, and there is no other way exposed. An
+    attempt to make translation and export disagree has to begin by adding a
     second mapping, which is the thing this module exists to prevent. *)
 
 open Pure
@@ -114,8 +113,8 @@ open Config
 
 (** How the correspondence was decided. Kept apart because a consumer's trust
     question differs per kind: a builtin is a hand-written Lean model standing
-    in for an implementation, while a primitive is the representation choice
-    the backend is built around. *)
+    in for an implementation, while a primitive is the representation choice the
+    backend is built around. *)
 type kind =
   | Primitive  (** A Rust primitive type. Decided by this module. *)
   | BuiltinType  (** [@ExtractBuiltin] type pattern. *)
@@ -159,8 +158,8 @@ type t = {
   rust_rendered_by_aeneas : string;
       (** Provenance and diagnostics only. Kept precisely BECAUSE it disagrees
           with Charon's rendering: if the five known-divergent entries join
-          while these strings still differ, nothing is matching on
-          presentation. *)
+          while these strings still differ, nothing is matching on presentation.
+      *)
   lean_rendered_name : string;
   lean_scope_namespaces : string list list;
   lean_canonical_name : string list option;
@@ -179,8 +178,8 @@ let rust_identity_key (id : rust_identity) : string =
 (** Where the Aeneas Lean library's declarations live.
 
     Both the generated file's [open] clause and every canonical name below are
-    derived from this, for the same reason the primitive mapping has one home:
-    a literal `open Aeneas Aeneas.Std …` in the header emitter plus a separate
+    derived from this, for the same reason the primitive mapping has one home: a
+    literal `open Aeneas Aeneas.Std …` in the header emitter plus a separate
     `Aeneas.Std` in the exporter would be two copies of one fact. *)
 let lean_std_namespace : string list = [ "Aeneas"; "Std" ]
 
@@ -188,7 +187,13 @@ let lean_std_namespace : string list = [ "Aeneas"; "Std" ]
 
     [Aeneas] is what makes a rendered [Std.U32] denote [Aeneas.Std.U32]. *)
 let lean_opened_namespaces : string list list =
-  [ [ "Aeneas" ]; lean_std_namespace; [ "Result" ]; [ "ControlFlow" ]; [ "Error" ] ]
+  [
+    [ "Aeneas" ];
+    lean_std_namespace;
+    [ "Result" ];
+    [ "ControlFlow" ];
+    [ "Error" ];
+  ]
 
 let dotted (components : string list) : string = String.concat "." components
 
@@ -221,7 +226,9 @@ let record (c : t) : unit =
         String.concat "|"
           (c.lean_rendered_name :: List.map dotted c.lean_scope_namespaces)
   in
-  let key = (kind_to_string c.kind, rust_identity_key c.rust_identity, identity) in
+  let key =
+    (kind_to_string c.kind, rust_identity_key c.rust_identity, identity)
+  in
   if not (Hashtbl.mem applied key) then Hashtbl.add applied key c
 
 (** Every correspondence this translation actually applied, sorted so the
@@ -230,7 +237,10 @@ let applied_correspondences () : t list =
   Hashtbl.fold (fun _ c acc -> c :: acc) applied []
   |> List.sort (fun a b ->
          match compare (kind_to_string a.kind) (kind_to_string b.kind) with
-         | 0 -> compare (rust_identity_key a.rust_identity) (rust_identity_key b.rust_identity)
+         | 0 ->
+             compare
+               (rust_identity_key a.rust_identity)
+               (rust_identity_key b.rust_identity)
          | c -> c)
 
 (* ------------------------------------------------------------------------ *)
@@ -239,8 +249,8 @@ let applied_correspondences () : t list =
 
 (** The Rust spelling, from Charon's printer rather than a literal here.
 
-    Deliberately not a string written in this file: the Rust name is Charon's
-    to spell, and a consumer joining against LLBC compares against exactly this
+    Deliberately not a string written in this file: the Rust name is Charon's to
+    spell, and a consumer joining against LLBC compares against exactly this
     rendering. *)
 let rust_name_of_literal_type (ty : literal_type) : string option =
   match ty with
@@ -257,9 +267,9 @@ let rust_name_of_literal_type (ty : literal_type) : string option =
 
 (** The bare declaration name of a primitive, with no namespace and no prefix.
 
-    The single place the per-type choice is made. Both the rendered form and
-    the canonical components below are built from this one value, so they
-    cannot name different declarations. *)
+    The single place the per-type choice is made. Both the rendered form and the
+    canonical components below are built from this one value, so they cannot
+    name different declarations. *)
 let primitive_base_name (ty : literal_type) : string option =
   match ty with
   | TBool -> Some (ExtractBase.bool_name ())
@@ -335,16 +345,15 @@ let lean_name_of_literal_type (ty : literal_type) : string =
     namespace, and whether it denotes an Aeneas declaration or a Lean-core one
     is recorded nowhere — see the module header for the measurement showing it
     goes both ways. What IS emitted is the qualified reference: the rendering
-    plus the scope it was written in, which the producer knows exactly and
-    which Lean can resolve unambiguously.
+    plus the scope it was written in, which the producer knows exactly and which
+    Lean can resolve unambiguously.
 
     The Rust side carries the LLBC [def_id] and the declaration's span. The
     rendered Rust name is kept beside them as provenance and is not identity:
     Aeneas and Charon render the same declaration differently, so a consumer
     that joined on the rendering would drop every trait impl. *)
-let record_builtin ~(kind : kind) ~(rust_name : string)
-    ~(extract_name : string) ~(section : string) ~(def_id : int)
-    ~(span : Meta.span) : unit =
+let record_builtin ~(kind : kind) ~(rust_name : string) ~(extract_name : string)
+    ~(section : string) ~(def_id : int) ~(span : Meta.span) : unit =
   if backend () = Lean then
     let data = span.data in
     let source_file =
@@ -367,3 +376,92 @@ let record_builtin ~(kind : kind) ~(rust_name : string)
         lean_canonical_name = None;
         kind;
       }
+
+(* ------------------------------------------------------------------------ *)
+(* Applied variant correspondences                                          *)
+(*                                                                          *)
+(* CGR-M2 slice 8P. A type correspondence is NOT the whole semantic fact.   *)
+(*                                                                          *)
+(* Measured: two producer revisions that map `core::result::Result` to the  *)
+(* same Lean type, and disagree about which Lean constructor Rust `Ok`      *)
+(* denotes, export BYTE-IDENTICAL correspondences. One of the two is        *)
+(* semantically false — an independent native-Rust oracle says so — and no  *)
+(* consumer reading this file could tell them apart. A reuse discriminator  *)
+(* built on that export would let evidence established under the valid      *)
+(* producer be served under the invalid one.                                *)
+(*                                                                          *)
+(* So the variant mapping is evidence, at the granularity the theorem       *)
+(* actually depends on:                                                     *)
+(*                                                                          *)
+(*     Rust enum type <-> Lean enum type        the pair both revisions share *)
+(*     Rust variant   <-> Lean constructor      the pair they differ on       *)
+(* ------------------------------------------------------------------------ *)
+
+(** One [(Rust variant, Lean constructor)] pair, as the translation resolved it.
+
+    The Rust side is Charon's [VariantId] reified — an index into the LLBC
+    declaration, which is a structured identity the consumer already holds. The
+    Rust variant NAME is carried beside it and is diagnostic only, for the same
+    reason [rust_rendered_by_aeneas] is: this pipeline has repeatedly measured
+    presentation standing in for identity, and this correspondence is the case
+    where it did the most damage — the mapping exists at all only because the
+    Lean-side extractor matched constructor names against Rust variant names. A
+    consumer must not repeat that inference to read the result of it. *)
+type variant_mapping = {
+  rust_variant_id : int;  (** Charon's [VariantId], reified. THE join key. *)
+  rust_variant_rendered : string;  (** Diagnostics. Never a key. *)
+  lean_constructor_rendered : string;
+      (** The constructor name the translation registered and will print.
+          Rendered rather than canonical for the same reason a builtin type's
+          [lean_canonical_name] is [None]: it is a bare string resolved under
+          the generated file's opens, and the producer does not know which
+          namespace it lands in. Resolve it against [lean_scope_namespaces] of
+          the enclosing type entry. *)
+}
+
+(** Applied variant mappings, keyed by the enclosing type's Rust identity.
+
+    A SECOND table rather than a field on {!t} only because the type
+    correspondence is recorded when the type's name is registered and the
+    variants are resolved a few lines later in the same function. Both are
+    written at their own decision site; neither is reconstructed. {!EmitJson}
+    joins them on [rust_identity_key], which is the same key the consumer joins
+    on. *)
+let applied_variants : (string, variant_mapping list) Hashtbl.t =
+  Hashtbl.create 16
+
+(** Record the variant mapping this translation resolved for one enum.
+
+    {b Read the word "resolved".} This is called where the mapping is decided
+    and registered into the extraction context — not at the point a constructor
+    is printed. So it says the translation resolved this mapping for a type it
+    registered, NOT that every variant was applied to a value. An enum
+    registered while only one of its variants appears in the program reports
+    both, and that is the honest reading rather than a defect.
+
+    Recording at the print site was the alternative and is worse: the evidence
+    would become a function of how many times a name was printed, and a mapped
+    but unused variant would be silently absent from the semantic basis. *)
+let record_variants ~(section : string) ~(def_id : int)
+    ~(variants : variant_mapping list) : unit =
+  if backend () = Lean then
+    let key =
+      rust_identity_key
+        (Declaration
+           { section; def_id; source_file = ""; source_begin_line = 0 })
+    in
+    match Hashtbl.find_opt applied_variants key with
+    | None -> Hashtbl.add applied_variants key variants
+    | Some existing when existing = variants -> ()
+    | Some _ ->
+        (* Two different mappings for one type. Not resolvable by precedence,
+           for exactly the reason `index_correspondences` refuses the same
+           shape at the declaration bridge: picking either would make the
+           semantic basis a fact about iteration order. *)
+        [%craise_opt_span] None
+          ("two different variant correspondences were resolved for " ^ section
+         ^ "#" ^ string_of_int def_id ^ "; refusing to pick one")
+
+(** The variant mapping recorded for a correspondence, if it is an enum. *)
+let variants_for (id : rust_identity) : variant_mapping list option =
+  Hashtbl.find_opt applied_variants (rust_identity_key id)
