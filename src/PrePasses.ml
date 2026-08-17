@@ -1039,7 +1039,7 @@ let filter_marker_traits (crate : crate) : crate =
               ~def_id:(TraitDeclId.to_int id)
               ~rust_rendered:(render decl.item_meta.name)
               ~cls:Correspondence.MarkerTraitNoSemanticContent
-              ~matched_pattern:pat_string;
+              ~matched_pattern:pat_string ~span:decl.item_meta.span;
             (TraitDeclId.Set.add id acc, (id, pat_string) :: matched)
         | None -> (acc, matched))
       crate.trait_decls
@@ -1082,7 +1082,8 @@ let filter_marker_traits (crate : crate) : crate =
               ~def_id:(TraitImplId.to_int id)
               ~rust_rendered:(render impl.item_meta.name)
               ~cls:Correspondence.MarkerTraitNoSemanticContent
-              ~matched_pattern:(pattern_for impl.impl_trait.id);
+              ~matched_pattern:(pattern_for impl.impl_trait.id)
+              ~span:impl.item_meta.span;
             TraitImplId.Set.add id acc
           end
           else acc)
@@ -1104,7 +1105,8 @@ let filter_marker_traits (crate : crate) : crate =
               ~def_id:(GlobalDeclId.to_int id)
               ~rust_rendered:(render decl.item_meta.name)
               ~cls:Correspondence.MarkerTraitNoSemanticContent
-              ~matched_pattern:"<associated item of a filtered marker trait>";
+              ~matched_pattern:"<associated item of a filtered marker trait>"
+              ~span:decl.item_meta.span;
             GlobalDeclId.Set.add id acc
           end
           else acc)
@@ -1127,7 +1129,8 @@ let filter_marker_traits (crate : crate) : crate =
               ~def_id:(FunDeclId.to_int id)
               ~rust_rendered:(render decl.item_meta.name)
               ~cls:Correspondence.MarkerTraitNoSemanticContent
-              ~matched_pattern:"<associated item of a filtered marker trait>";
+              ~matched_pattern:"<associated item of a filtered marker trait>"
+              ~span:decl.item_meta.span;
             FunDeclId.Set.add id acc
           end
           else acc)

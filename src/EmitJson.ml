@@ -248,6 +248,12 @@ type withdrawal_entry = {
       (** [trait_decl] | [trait_impl] | [function] | [global] *)
   def_id : int;  (** Charon's id, reified. THE join key. *)
   rust_rendered : string;  (** Charon's rendering. Diagnostics only. *)
+  file : string;
+  begin_line : int;
+      (** [file] and [begin_line] are an INDEPENDENT producer fact about the same
+          declaration, so a consumer can check the [def_id] join rather than
+          trust it. Deliberately NOT part of the consumer's reuse identity: a
+          line number moving is not a change in what was erased. *)
   withdrawal_class : string;
       (** A stable CLASS, not a message. It participates in the consumer's reuse
           identity, and a rendered English sentence would make that identity a
@@ -572,6 +578,8 @@ let write_if_enabled ~(crate_name : string) : string option =
                     section = d.section;
                     def_id = d.def_id;
                     rust_rendered = w.w_rust_rendered;
+                    file = d.source_file;
+                    begin_line = d.source_begin_line;
                     withdrawal_class =
                       Correspondence.withdrawal_class_to_string w.w_class;
                     matched_pattern = w.w_matched_pattern;

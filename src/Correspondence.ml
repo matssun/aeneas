@@ -557,9 +557,25 @@ let withdrawn : (string, withdrawal) Hashtbl.t = Hashtbl.create 32
     is consulted. *)
 let record_withdrawal ~(section : string) ~(def_id : int)
     ~(rust_rendered : string) ~(cls : withdrawal_class)
-    ~(matched_pattern : string) : unit =
+    ~(matched_pattern : string) ~(span : Meta.span) : unit =
+  let data = span.data in
+  let source_file =
+    match data.file.name with
+    | Virtual s | Local s | NotReal s -> s
+  in
   let identity =
-    Declaration { section; def_id; source_file = ""; source_begin_line = 0 }
+    Declaration
+      {
+        section;
+        def_id;
+        source_file;
+        (* An INDEPENDENT producer fact about the same declaration, so a consumer
+           can check the id join rather than trust it — the same discipline the
+           applied correspondences follow. Deliberately NOT part of the
+           consumer's reuse identity: a line number moving is not a change in
+           what was erased. *)
+        source_begin_line = data.beg_loc.line;
+      }
   in
   let key = rust_identity_key identity in
   if not (Hashtbl.mem withdrawn key) then
