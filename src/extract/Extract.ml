@@ -435,6 +435,9 @@ let extract_cast_kind_gen (span : Meta.span)
     ~(inside : bool) (kind : cast_kind) (arg : texpr) : unit =
   match kind with
   | CastLit (src, tgt) ->
+      (* Captured before the `let cast_str, src, tgt = …` below shadows both
+         with rendered strings. *)
+      let census_src, census_tgt = (src, tgt) in
       let integer_type_to_string (ty : integer_type) : string =
         if backend () = Lean then
           match ty with
@@ -494,6 +497,19 @@ let extract_cast_kind_gen (span : Meta.span)
              [%craise] span "Unexpected cast: bool to bool"
          | _ -> [%craise] span "Unreachable"
        in
+       (* CGR-M2 census: a numeric or bool->int coercion becomes a named cast
+          function. The rule id distinguishes the two admitted shapes, because
+          they are different semantic facts even though one branch prints both. *)
+       AppliedLowering.record
+         ~rule_id:
+           (match census_src with
+           | TBool -> "cast_bool_to_scalar_as_named_function"
+           | _ -> "cast_scalar_to_scalar_as_named_function")
+         ~rust_operation:
+           (PrintPure.literal_type_to_string census_src
+           ^ " as "
+           ^ PrintPure.literal_type_to_string census_tgt)
+         ~lean_emitted_form:cast_str ();
        (* Print the name of the function *)
        F.pp_print_string fmt cast_str;
        (* Print the src type argument *)
@@ -575,7 +591,23 @@ let extract_unop (span : Meta.span)
     ~(inside : bool) (unop : unop) (arg : texpr) : unit =
   match unop with
   | Not _ | Neg _ | ArrayToSlice ->
+      (* No `ctx` reaches this function, so the operation is labelled
+         structurally rather than through `PrintPure`'s env-taking printer.
+         Widening the signature to get a prettier diagnostic string is not worth
+         a translator diff. *)
+      let rust_operation =
+        match unop with
+        | Not _ -> "not"
+        | Neg _ -> "neg"
+        | ArrayToSlice -> "array_to_slice"
+        | Cast _ -> "cast"
+      in
       let unop = unop_name unop in
+      (* CGR-M2 census. `ArrayToSlice` sits in this branch beside the two real
+         arithmetic/logical operators, which is worth seeing: a REPRESENTATION
+         COERCION is lowered by the same route as a negation. *)
+      AppliedLowering.record ~rule_id:"unop_prefix_notation" ~rust_operation
+        ~lean_emitted_form:unop ();
       if inside then F.pp_print_string fmt "(";
       F.pp_print_string fmt unop;
       F.pp_print_space fmt ();
@@ -643,6 +675,15 @@ let extract_binop (span : Meta.span) (ctx : extraction_ctx)
         | Coq, _ -> "s" ^ binop_str
         | _ -> binop_str
       in
+      (* CGR-M2 census. Note what this branch is and is NOT: Aeneas decided to
+         print INFIX NOTATION. Whether the result is a Bool or a Prop is decided
+         by the instances in the backend library, not here — so the rule is
+         named after the printing decision. The measured `v > BOUND` case lands
+         here, and so does panicking arithmetic: one translator decision covers
+         both, which is itself a fact the census should see. *)
+      AppliedLowering.record ~rule_id:"binop_infix_notation"
+        ~rust_operation:(binop_to_string ctx binop) ~lean_emitted_form:binop_str
+        ();
       extract_expr ~inside:true arg0;
       F.pp_print_space fmt ();
       F.pp_print_string fmt binop_str;
@@ -655,6 +696,7 @@ let extract_binop (span : Meta.span) (ctx : extraction_ctx)
       | Div (OWrap, _)
       | Shl (OWrap, _, _)
       | Shr (OWrap, _, _) ) ) ->
+      let rust_operation = binop_to_string ctx binop in
       let binop =
         match binop with
         | Add _ -> "add"
@@ -672,6 +714,11 @@ let extract_binop (span : Meta.span) (ctx : extraction_ctx)
         ^ StringUtils.capitalize_first_letter (int_name ty)
         ^ ".wrapping_" ^ binop
       in
+      (* CGR-M2 census: a wrapping operation becomes a QUALIFIED FUNCTION
+         reference this branch constructs by string concatenation — not a
+         {!ExtractBuiltin} table entry, so {!Correspondence} never sees it. *)
+      AppliedLowering.record ~rule_id:"binop_wrapping_as_qualified_function"
+        ~rust_operation ~lean_emitted_form:binop ();
       F.pp_print_string fmt binop;
       F.pp_print_space fmt ();
       extract_expr ~inside:true arg0;
@@ -683,7 +730,12 @@ let extract_binop (span : Meta.span) (ctx : extraction_ctx)
         | Shl _ | Shr _ -> true
         | _ -> false
       in
+      let rust_operation = binop_to_string ctx binop in
       let binop = named_binop_name binop in
+      (* CGR-M2 census: the catch-all. Everything the two notation branches did
+         not claim is lowered to a NAMED FUNCTION from {!ExtractBase}'s table. *)
+      AppliedLowering.record ~rule_id:"binop_named_function" ~rust_operation
+        ~lean_emitted_form:binop ();
       F.pp_print_string fmt binop;
       (* In the case of F*, for shift operations, because machine integers
          are simply integers with a refinement, if the second argument is a
@@ -720,6 +772,30 @@ let rec extract_texpr (span : Meta.span) (ctx : extraction_ctx)
     (fmt : F.formatter) ~(inside : bool) ~(inside_do : bool) (e : texpr) : unit
     =
   let is_pattern = false in
+  (* CGR-M2: the lowering census denominator. Every traversed node records what
+     it is, BEFORE any specific rule below gets a chance to refine it. So a
+     construct that this translator lowers by some route nobody thought to
+     instrument shows up as a construct with no rule beside it, rather than as
+     an absence indistinguishable from "nothing to lower". Diagnostic only. *)
+  AppliedLowering.record
+    ~rule_id:
+      ("construct_"
+      ^
+      match e.e with
+      | FVar _ -> "fvar"
+      | BVar _ -> "bvar"
+      | CVar _ -> "cvar"
+      | Const _ -> "const"
+      | App _ -> "app"
+      | Lambda _ -> "lambda"
+      | Qualif _ -> "qualif"
+      | Let _ -> "let"
+      | Switch _ -> "switch"
+      | Meta _ -> "meta"
+      | StructUpdate _ -> "struct_update"
+      | Loop _ -> "loop"
+      | EError _ -> "error")
+    ~rust_operation:"" ();
   match e.e with
   | FVar var_id ->
       let var_name = ctx_get_var span var_id ctx in
@@ -1479,6 +1555,18 @@ and extract_Switch (span : Meta.span) (ctx : extraction_ctx) (fmt : F.formatter)
   (* Extract the switch *)
   (match body with
   | If (e_then, e_else) ->
+      (* CGR-M2 census. The scrutinee's Rust type is `bool`; this branch decides
+         to print `if … then … else`. It does NOT decide that the condition is a
+         proposition, nor supply the `Decidable` instance the `ite` needs — those
+         belong to the checking environment. Naming the rule after the printed
+         form keeps the producer's claim to the producer's decision.
+         `use_dep_ite` is recorded because it changes the emitted form. *)
+      AppliedLowering.record ~rule_id:"switch_bool_scrutinee_as_if_then_else"
+        ~rust_operation:(PrintPure.ty_to_string (extraction_ctx_to_fmt_env ctx)
+                           false scrut.ty)
+        ~lean_emitted_form:
+          (if backend () = Lean && ctx.use_dep_ite then "if h:" else "if")
+        ();
       (* Open a box for the [if e] *)
       F.pp_open_hovbox fmt ctx.indent_incr;
       F.pp_print_string fmt "if";
@@ -1548,6 +1636,13 @@ and extract_Switch (span : Meta.span) (ctx : extraction_ctx) (fmt : F.formatter)
             (* We're being extra safe in the case of HOL4 *)
             "(case"
       in
+      (* CGR-M2 census: an ADT scrutinee becomes a `match`. This is the rule the
+         slice-8P variant mappings are the detail OF — the constructors a branch
+         pattern names are exactly what that evidence pins down. *)
+      AppliedLowering.record ~rule_id:"switch_adt_scrutinee_as_match"
+        ~rust_operation:
+          (PrintPure.ty_to_string (extraction_ctx_to_fmt_env ctx) false scrut.ty)
+        ~lean_emitted_form:match_begin ();
       F.pp_print_string fmt match_begin;
       F.pp_print_space fmt ();
       let scrut_inside = PureUtils.texpr_requires_parentheses span scrut in
@@ -2463,6 +2558,18 @@ let extract_fun_decl_hol4_opaque (ctx : extraction_ctx) (fmt : F.formatter)
 let extract_fun_decl (ctx : extraction_ctx) (fmt : F.formatter)
     (kind : decl_kind) (has_decreases_clause : bool) (def : fun_decl) : unit =
   [%sanity_check] def.item_meta.span (not def.is_global_decl_body);
+  (* CGR-M2: bind the ambient census subject for the whole body extraction, so
+     every lowering event below is attributed to a structured Rust identity.
+     `loop_id` is carried rather than folded away: a loop is extracted as its own
+     `fun_decl` sharing the parent's `def_id`, and a census aggregating over
+     `def_id` alone would double-count without being able to tell. *)
+  AppliedLowering.with_subject
+    {
+      section = "function";
+      def_id = FunDeclId.to_int def.def_id;
+      loop_id = Option.map (fun (l, _) -> LoopId.to_int l) def.loop_id;
+    }
+  @@ fun () ->
   (* We treat HOL4 opaque functions in a specific manner *)
   if backend () = HOL4 && Option.is_none def.body then
     extract_fun_decl_hol4_opaque ctx fmt def

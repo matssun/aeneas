@@ -202,6 +202,33 @@ type correspondence_entry = {
 }
 [@@deriving to_yojson]
 
+(** One semantic lowering rule this translation exercised, for ONE subject.
+
+    {b DIAGNOSTIC ONLY — NOT A CORRESPONDENCE.} Deliberately a separate key from
+    [correspondences] rather than a new [kind] inside it, because a consumer
+    must not be able to reach these by widening a match on correspondence kinds.
+    See {!AppliedLowering} for why the taxonomy is not yet frozen and why
+    [rule_id] names a translator branch rather than a semantic consequence. *)
+type applied_lowering_entry = {
+  subject_section : string option;
+      (** [None] where the event fired outside any declaration. Emitted rather
+          than dropped: a census that silently discards unattributed events
+          under-reports its own denominator. *)
+  subject_def_id : int option;
+      (** Charon's id, reified. The join key against [functions]. *)
+  subject_loop_id : int option;
+      (** A loop is a separate declaration sharing its parent's [def_id]. *)
+  rule_id : string;
+  rust_operation : string;
+  lean_emitted_form : string option;
+      (** The surface form the producer chose to print. NOT a claim about what
+          that form denotes in the checking environment — the measured case's
+          whole finding is that those are different questions. *)
+  backend : string;
+  occurrences : int;
+}
+[@@deriving to_yojson]
+
 type envelope = {
   aeneas_version : string;
   charon_version : string;
@@ -216,6 +243,11 @@ type envelope = {
   correspondences : correspondence_entry list;
       (** Intrinsic Rust <-> Lean correspondences applied by this translation.
           Not a dump of the builtin tables: only what was used. *)
+  applied_lowerings : applied_lowering_entry list;
+      (** CGR-M2 census. DIAGNOSTIC ONLY: no consumer may derive a
+          correspondence, a basis requirement or a serving decision from this
+          key. It exists so the distribution of lowering rules over a real
+          corpus can decide the taxonomy, instead of one subject deciding it. *)
 }
 [@@deriving to_yojson]
 
@@ -492,6 +524,30 @@ let write_if_enabled ~(crate_name : string) : string option =
                     (Correspondence.variants_for c.rust_identity);
               })
             (Correspondence.applied_correspondences ());
+        (* Same discipline, different claim: read straight from the accumulator
+           the TRANSLATION wrote, at the branches that made the decisions. No
+           table walk, and no re-traversal of the pure AST — a second traversal
+           would be a second opinion about what the translation did. *)
+        applied_lowerings =
+          List.map
+            (fun (e : AppliedLowering.event) ->
+              {
+                subject_section =
+                  Option.map (fun (s : AppliedLowering.subject) -> s.section)
+                    e.subject;
+                subject_def_id =
+                  Option.map (fun (s : AppliedLowering.subject) -> s.def_id)
+                    e.subject;
+                subject_loop_id =
+                  Option.bind e.subject
+                    (fun (s : AppliedLowering.subject) -> s.loop_id);
+                rule_id = e.rule_id;
+                rust_operation = e.rust_operation;
+                lean_emitted_form = e.lean_emitted_form;
+                backend = e.backend;
+                occurrences = e.occurrences;
+              })
+            (AppliedLowering.applied_lowerings ());
       };
     Some path
   end

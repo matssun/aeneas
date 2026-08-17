@@ -39,6 +39,7 @@
   domainslib
   ppx_deriving_yojson)
  (modules
+  AppliedLowering
   BorrowCheck
   Builtin
   Collections
