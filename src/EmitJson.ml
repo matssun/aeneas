@@ -265,6 +265,21 @@ type withdrawal_entry = {
 }
 [@@deriving to_yojson]
 
+(** One declaration-affecting transformation, and whether the erasure channel
+    accounts for it.
+
+    A producer DECLARATION, deliberately falsifiable — see {!Correspondence}. It
+    exists so a transformation added later cannot silently inherit the meaning
+    "does nothing relevant" by emitting no events: a consumer that does not
+    recognise an entry here must refuse to reconcile, rather than reconcile
+    against a population it cannot know is complete. *)
+type transformation_entry = {
+  transformation : string;
+  observation : string;
+      (** [observed:<withdrawal class>] or [not_population_affecting]. *)
+}
+[@@deriving to_yojson]
+
 type envelope = {
   aeneas_version : string;
   charon_version : string;
@@ -279,6 +294,11 @@ type envelope = {
   correspondences : correspondence_entry list;
       (** Intrinsic Rust <-> Lean correspondences applied by this translation.
           Not a dump of the builtin tables: only what was used. *)
+  transformation_observation : transformation_entry list;
+      (** Which declaration-affecting transformations this producer runs, and
+          which of them the [withdrawals] channel accounts for. Without it,
+          "no withdrawals of kind X" and "this producer has no pass of kind X"
+          are the same bytes. *)
   withdrawals : withdrawal_entry list;
       (** Declarations this translation ERASED before translating. The other half
           of what a complete reconciliation needs: every raw LLBC requirement
@@ -569,6 +589,16 @@ let write_if_enabled ~(crate_name : string) : string option =
            point it performed each removal. Not a re-derivation of which
            declarations "would have been" filtered: erasure and its evidence come
            from one decision, the same rule the variant mappings follow. *)
+        transformation_observation =
+          List.map
+            (fun (t : Correspondence.declared_transformation) ->
+              {
+                transformation = t.transformation;
+                observation =
+                  Correspondence.transformation_observation_to_string
+                    t.observation;
+              })
+            Correspondence.declared_transformations;
         withdrawals =
           List.map
             (fun (w : Correspondence.withdrawal) ->

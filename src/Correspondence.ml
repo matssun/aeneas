@@ -619,3 +619,78 @@ let withdrawals () : withdrawal list =
          compare
            (rust_identity_key a.w_rust_identity)
            (rust_identity_key b.w_rust_identity))
+
+(* ------------------------------------------------------------------------ *)
+(* Which transformations the erasure channel accounts for                   *)
+(*                                                                          *)
+(* CGR-M2 slice 11 closure. Measuring the prepass pipeline found FIVE       *)
+(* declaration-affecting passes where the channel had instrumented one, so  *)
+(* four kinds of erasure were reaching a consumer as "unmapped requirement" *)
+(* — the exact confusion the channel exists to end.                         *)
+(*                                                                          *)
+(* Fixing the four is not enough on its own. A pass added LATER inherits    *)
+(* the meaning "does nothing relevant" purely by emitting nothing, and a    *)
+(* consumer cannot tell that from a pass that genuinely erased nothing. So  *)
+(* the producer DECLARES which transformations its evidence accounts for,   *)
+(* and a consumer refuses to reconcile against a declaration it does not    *)
+(* recognise.                                                               *)
+(*                                                                          *)
+(*     >  Otherwise adding the sixth site later would retroactively reveal  *)
+(*     >  that "complete erasure observation" never existed.                *)
+(*                                                                          *)
+(* This is a producer DECLARATION and deliberately falsifiable, the same    *)
+(* discipline as `lean_canonical_name`: it is not derived from the pipeline *)
+(* (which is a sequence of `let` bindings, not a data structure), so it can *)
+(* be wrong — and a consumer that refuses an unrecognised entry turns a     *)
+(* wrong declaration into a measurable refusal rather than a silent gap.    *)
+(* It lives beside the pass list in {!PrePasses} for the same reason.       *)
+(* ------------------------------------------------------------------------ *)
+
+(** How a declaration-affecting transformation relates to the erasure channel. *)
+type transformation_observation =
+  | Observed of withdrawal_class
+      (** Its erasures are reported, with this class. *)
+  | NotPopulationAffecting
+      (** MEASURED to remove no declaration and retire no requirement. Not
+          "assumed harmless": [replace_static] rewrites one signature's regions
+          and is the reason this state exists rather than being folded into
+          {!Observed} — recording it as an erasure would have asserted a
+          requirement was gone when it is merely re-signatured. *)
+
+type declared_transformation = {
+  transformation : string;  (** The pass's own name in the producer source. *)
+  observation : transformation_observation;
+}
+
+(** Every declaration-affecting transformation this producer runs.
+
+    Ordered as the pipeline runs them, so a reader adding a pass sees the list
+    it must join. A pass absent from here is a producer defect the consumer
+    cannot detect; a pass present but unrecognised by the consumer is a refusal. *)
+let declared_transformations : declared_transformation list =
+  [
+    {
+      transformation = "filter_marker_traits";
+      observation = Observed MarkerTraitNoSemanticContent;
+    };
+    {
+      transformation = "filter_type_aliases";
+      observation = Observed TypeAliasRemoved;
+    };
+    { transformation = "replace_static"; observation = NotPopulationAffecting };
+    { transformation = "remove_vtables"; observation = Observed VtableRemoved };
+    {
+      transformation = "simplify_trait_calls";
+      observation = Observed TraitCallSimplified;
+    };
+    {
+      transformation = "simplify_trait_calls:prune";
+      observation = Observed UnusedAfterSemanticRewrite;
+    };
+  ]
+
+let transformation_observation_to_string (o : transformation_observation) :
+    string =
+  match o with
+  | Observed c -> "observed:" ^ withdrawal_class_to_string c
+  | NotPopulationAffecting -> "not_population_affecting"
