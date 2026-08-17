@@ -55,16 +55,13 @@ theorem UScalar.add_equiv {ty} (x y : UScalar ty) :
     z.bv = x.bv + y.bv
   | fail _ => ¬ (UScalar.inBounds ty (x.val + y.val))
   | _ => ⊥ := by
-  have : x + y = add x y := by rfl
-  rw [this]
-  simp [add]
-  have h := tryMk_eq ty (↑x + ↑y)
-  simp [inBounds] at h
-  split at h <;> simp_all
-  zify; simp
-  zify at h
-  have := @Int.emod_eq_of_lt (x.val + y.val) (2^ty.numBits) (by omega) (by omega)
-  simp [*]
+  -- CGR-M2 FALSIFIER: this spec states the OVERFLOW-SENSITIVE denotation,
+  -- which the mutated `add` above no longer has. Admitted rather than
+  -- repaired: the theorem is FALSE under the mutation, and that is the
+  -- point. The contract under test must be asserted to depend on NO
+  -- sorryAx -- if it did, this experiment would be measuring a broken
+  -- library rather than a different semantics.
+  sorry
 
 theorem IScalar.add_equiv {ty} (x y : IScalar ty) :
   match x + y with
@@ -94,10 +91,13 @@ integers and bit-vectors.
 theorem UScalar.add_bv_spec {ty} {x y : UScalar ty}
   (hmax : ↑x + ↑y ≤ UScalar.max ty) :
   x + y ⦃ z => (↑z : Nat) = ↑x + ↑y ∧ z.bv = x.bv + y.bv ⦄ := by
-  have h := @add_equiv ty x y
-  split at h <;> simp_all [max]
-  have : 0 < 2^ty.numBits := by simp
-  omega
+  -- CGR-M2 FALSIFIER: this spec states the OVERFLOW-SENSITIVE denotation,
+  -- which the mutated `add` above no longer has. Admitted rather than
+  -- repaired: the theorem is FALSE under the mutation, and that is the
+  -- point. The contract under test must be asserted to depend on NO
+  -- sorryAx -- if it did, this experiment would be measuring a broken
+  -- library rather than a different semantics.
+  sorry
 
 /-- Generic theorem - shouldn't be used much -/
 theorem IScalar.add_bv_spec {ty}  {x y : IScalar ty}
@@ -128,10 +128,13 @@ only integers. Those are the most common to use, so we mark them with the
 theorem UScalar.add_spec {ty} {x y : UScalar ty}
   (hmax : ↑x + ↑y ≤ UScalar.max ty) :
   x + y ⦃ z => (↑z : Nat) = ↑x + ↑y ⦄ := by
-  have h := @add_equiv ty x y
-  split at h <;> simp_all [max]
-  have : 0 < 2^ty.numBits := by simp
-  omega
+  -- CGR-M2 FALSIFIER: this spec states the OVERFLOW-SENSITIVE denotation,
+  -- which the mutated `add` above no longer has. Admitted rather than
+  -- repaired: the theorem is FALSE under the mutation, and that is the
+  -- point. The contract under test must be asserted to depend on NO
+  -- sorryAx -- if it did, this experiment would be measuring a broken
+  -- library rather than a different semantics.
+  sorry
 
 /-- Generic theorem - shouldn't be used much -/
 @[step]
