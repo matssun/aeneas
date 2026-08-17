@@ -1000,18 +1000,55 @@ let filter_marker_traits (crate : crate) : crate =
       match_with_trait_decl_refs = Config.match_patterns_with_trait_decl_refs;
     }
   in
+  (* CGR-M2 slice 11. The erasure and its evidence come from ONE decision.
+     `pat_strings` is zipped with `pats` so the pattern RECORDED is the pattern
+     that MATCHED — not a second lookup that could name a different one. *)
+  let pat_strings =
+    [
+      "core::marker::Sized";
+      "core::marker::MetaSized";
+      "core::marker::PointeeSized";
+      "core::marker::Destruct";
+      "core::ptr::metadata::Pointee";
+      "core::ptr::metadata::Thin";
+      "core::marker::Send";
+      "core::marker::Sync";
+      "core::marker::Unpin";
+      "core::marker::Tuple";
+      "core::clone::TrivialClone";
+      "core::alloc::Allocator";
+    ]
+  in
+  let fmt_env = Print.crate_to_fmt_env crate in
+  let render name = Print.name_to_string fmt_env name in
   (* Collect the trait decl ids to filter *)
-  let filtered_ids =
+  let filtered_ids, matched_pattern_of =
     TraitDeclId.Map.fold
-      (fun id (decl : trait_decl) acc ->
-        if
-          List.exists
-            (fun pat ->
+      (fun id (decl : trait_decl) (acc, matched) ->
+        (* `find_opt` rather than `exists`: the matching pattern is the thing
+           worth recording, and asking twice is how the recorded reason drifts
+           from the applied one. *)
+        match
+          List.find_opt
+            (fun (pat, _) ->
               NameMatcher.match_name mctx match_config pat decl.item_meta.name)
-            pats
-        then TraitDeclId.Set.add id acc
-        else acc)
-      crate.trait_decls TraitDeclId.Set.empty
+            (List.combine pats pat_strings)
+        with
+        | Some (_, pat_string) ->
+            Correspondence.record_withdrawal ~section:"trait_decl"
+              ~def_id:(TraitDeclId.to_int id)
+              ~rust_rendered:(render decl.item_meta.name)
+              ~cls:Correspondence.MarkerTraitNoSemanticContent
+              ~matched_pattern:pat_string;
+            (TraitDeclId.Set.add id acc, (id, pat_string) :: matched)
+        | None -> (acc, matched))
+      crate.trait_decls
+      (TraitDeclId.Set.empty, [])
+  in
+  let pattern_for id =
+    match List.assoc_opt id matched_pattern_of with
+    | Some p -> p
+    | None -> "unknown"
   in
   if TraitDeclId.Set.is_empty filtered_ids then crate
   else
@@ -1037,7 +1074,17 @@ let filter_marker_traits (crate : crate) : crate =
     let filtered_impl_ids =
       TraitImplId.Map.fold
         (fun id (impl : trait_impl) acc ->
-          if is_filtered_id impl.impl_trait.id then TraitImplId.Set.add id acc
+          if is_filtered_id impl.impl_trait.id then begin
+            (* Recorded with the PARENT trait's pattern: the impl is erased
+               BECAUSE its trait was, and a consumer reconciling a drop-glue
+               requirement needs the reason, not just the fact. *)
+            Correspondence.record_withdrawal ~section:"trait_impl"
+              ~def_id:(TraitImplId.to_int id)
+              ~rust_rendered:(render impl.item_meta.name)
+              ~cls:Correspondence.MarkerTraitNoSemanticContent
+              ~matched_pattern:(pattern_for impl.impl_trait.id);
+            TraitImplId.Set.add id acc
+          end
           else acc)
         crate.trait_impls TraitImplId.Set.empty
     in
@@ -1052,7 +1099,14 @@ let filter_marker_traits (crate : crate) : crate =
     let filtered_global_ids =
       GlobalDeclId.Map.fold
         (fun id (decl : global_decl) acc ->
-          if item_source_is_filtered decl.src then GlobalDeclId.Set.add id acc
+          if item_source_is_filtered decl.src then begin
+            Correspondence.record_withdrawal ~section:"global"
+              ~def_id:(GlobalDeclId.to_int id)
+              ~rust_rendered:(render decl.item_meta.name)
+              ~cls:Correspondence.MarkerTraitNoSemanticContent
+              ~matched_pattern:"<associated item of a filtered marker trait>";
+            GlobalDeclId.Set.add id acc
+          end
           else acc)
         crate.global_decls GlobalDeclId.Set.empty
     in
@@ -1064,8 +1118,18 @@ let filter_marker_traits (crate : crate) : crate =
             | None -> false
             | Some id -> GlobalDeclId.Set.mem id filtered_global_ids
           in
-          if item_source_is_filtered decl.src || init_is_filtered then
+          if item_source_is_filtered decl.src || init_is_filtered then begin
+            (* Drop glue lands here: `impl_Destruct_for_Box::drop_glue` is a
+               fun_decl erased because its trait impl was. The measured consumer
+               requirement is a FunDeclId, so without this the reconciliation
+               would have a hole exactly where the census found one. *)
+            Correspondence.record_withdrawal ~section:"function"
+              ~def_id:(FunDeclId.to_int id)
+              ~rust_rendered:(render decl.item_meta.name)
+              ~cls:Correspondence.MarkerTraitNoSemanticContent
+              ~matched_pattern:"<associated item of a filtered marker trait>";
             FunDeclId.Set.add id acc
+          end
           else acc)
         crate.fun_decls FunDeclId.Set.empty
     in

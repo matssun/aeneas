@@ -229,6 +229,36 @@ type applied_lowering_entry = {
 }
 [@@deriving to_yojson]
 
+(** A declaration this translation ERASED, and why.
+
+    {b Not a correspondence, and not a diagnostic either.} A consumer derives its
+    requirement population from the charon `.llbc` — the crate BEFORE Aeneas'
+    prepasses — while the translation happens after them, so it sees requirements
+    for declarations that were deliberately deleted. This is the producer stating
+    its own erasures so the consumer can reconcile against a MEASURED population
+    rather than a transcribed copy of Aeneas' filter list.
+
+    Reuse-relevant, therefore, in the same way an applied correspondence is: a
+    producer that stops erasing something has changed the semantics a proof was
+    established under. The consumer decides what enters its reuse identity; the
+    span below is emitted as an independent check on the id join and is
+    deliberately NOT part of that identity. *)
+type withdrawal_entry = {
+  section : string;
+      (** [trait_decl] | [trait_impl] | [function] | [global] *)
+  def_id : int;  (** Charon's id, reified. THE join key. *)
+  rust_rendered : string;  (** Charon's rendering. Diagnostics only. *)
+  withdrawal_class : string;
+      (** A stable CLASS, not a message. It participates in the consumer's reuse
+          identity, and a rendered English sentence would make that identity a
+          fact about wording. *)
+  matched_pattern : string;
+      (** The pattern the filter itself matched on — the producer's own key for
+          the decision, taken from the same [find_opt] that performed the
+          removal. *)
+}
+[@@deriving to_yojson]
+
 type envelope = {
   aeneas_version : string;
   charon_version : string;
@@ -243,6 +273,11 @@ type envelope = {
   correspondences : correspondence_entry list;
       (** Intrinsic Rust <-> Lean correspondences applied by this translation.
           Not a dump of the builtin tables: only what was used. *)
+  withdrawals : withdrawal_entry list;
+      (** Declarations this translation ERASED before translating. The other half
+          of what a complete reconciliation needs: every raw LLBC requirement
+          must be either observed as a correspondence or accounted for here —
+          exactly one of the two. *)
   applied_lowerings : applied_lowering_entry list;
       (** CGR-M2 census. DIAGNOSTIC ONLY: no consumer may derive a
           correspondence, a basis requirement or a serving decision from this
@@ -524,6 +559,29 @@ let write_if_enabled ~(crate_name : string) : string option =
                     (Correspondence.variants_for c.rust_identity);
               })
             (Correspondence.applied_correspondences ());
+        (* Read from the accumulator `PrePasses.filter_marker_traits` wrote at the
+           point it performed each removal. Not a re-derivation of which
+           declarations "would have been" filtered: erasure and its evidence come
+           from one decision, the same rule the variant mappings follow. *)
+        withdrawals =
+          List.map
+            (fun (w : Correspondence.withdrawal) ->
+              match w.w_rust_identity with
+              | Correspondence.Declaration d ->
+                  {
+                    section = d.section;
+                    def_id = d.def_id;
+                    rust_rendered = w.w_rust_rendered;
+                    withdrawal_class =
+                      Correspondence.withdrawal_class_to_string w.w_class;
+                    matched_pattern = w.w_matched_pattern;
+                  }
+              | Correspondence.PrimitiveType _ ->
+                  (* A primitive is not a declaration, so it cannot be erased by
+                     a declaration filter. Unreachable by construction. *)
+                  [%craise_opt_span] None
+                    "a withdrawal was recorded for a primitive type")
+            (Correspondence.withdrawals ());
         (* Same discipline, different claim: read straight from the accumulator
            the TRANSLATION wrote, at the branches that made the decisions. No
            table walk, and no re-traversal of the pure AST — a second traversal

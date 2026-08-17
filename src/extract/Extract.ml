@@ -3034,7 +3034,25 @@ let extract_trait_decl_register_names (ctx : extraction_ctx)
       | None ->
           ( ctx_compute_trait_decl_name ctx trait_decl,
             ctx_compute_trait_decl_constructor ctx trait_decl )
-      | Some info -> (info.extract_name, info.constructor)
+      | Some info ->
+          (* CGR-M2 slice 11: the single site where a builtin TRAIT's Rust
+             identity meets the Lean name standing for it — the third member of
+             the family whose type and function twins are in
+             `ExtractTypes.extract_type_decl_register_names` and
+             `extract_fun_decl_register_names`.
+
+             Recorded here rather than by walking `ExtractBuiltinLean`'s 47
+             `mk_trait_decl` entries, so the evidence says what THIS translation
+             applied. A crate that never touches a closure must not claim the
+             `Fn` family as part of its semantic basis, and exporting the table
+             would make the evidence a producer CAPABILITY rather than
+             subject-consumed semantics. *)
+          Correspondence.record_builtin ~kind:Correspondence.BuiltinTraitDecl
+            ~rust_name:(name_to_string ctx trait_decl.item_meta.name)
+            ~extract_name:info.extract_name ~section:"trait_decl"
+            ~def_id:(Pure.TraitDeclId.to_int trait_decl.def_id)
+            ~span:trait_decl.item_meta.span;
+          (info.extract_name, info.constructor)
     in
     let ctx =
       ctx_add trait_decl.item_meta.span (TraitDeclId trait_decl.def_id)
@@ -3104,7 +3122,17 @@ let extract_trait_impl_register_names (ctx : extraction_ctx)
   let name =
     match builtin_info with
     | None -> ctx_compute_trait_impl_name ctx trait_impl
-    | Some info -> info.extract_name
+    | Some info ->
+        (* Same site rule for the IMPL. Kept as its own kind rather than folded
+           into the decl's: an impl is what says how a concrete type satisfies
+           the interface, and a consumer's trust question about
+           `impl_Fn_for_Box` is not the question about `Fn`. *)
+        Correspondence.record_builtin ~kind:Correspondence.BuiltinTraitImpl
+          ~rust_name:(name_to_string ctx trait_impl.item_meta.name)
+          ~extract_name:info.extract_name ~section:"trait_impl"
+          ~def_id:(Pure.TraitImplId.to_int trait_impl.def_id)
+          ~span:trait_impl.item_meta.span;
+        info.extract_name
   in
   ctx_add trait_impl.item_meta.span (TraitImplId trait_impl.def_id) name ctx
 

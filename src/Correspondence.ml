@@ -119,12 +119,31 @@ type kind =
   | Primitive  (** A Rust primitive type. Decided by this module. *)
   | BuiltinType  (** [@ExtractBuiltin] type pattern. *)
   | BuiltinFun  (** [@ExtractBuiltin] function pattern. *)
+  | BuiltinTraitDecl
+      (** [@ExtractBuiltin] trait-declaration pattern.
+
+          A new MEMBER of this ontology rather than a new ontology: the Rust side
+          is a declaration with a Charon id and the Lean side is a hand-written
+          model, exactly as for {!BuiltinType} and {!BuiltinFun}. It is separate
+          from them because a consumer's trust question differs — a builtin trait
+          stands for a whole interface plus its laws, not a single declaration's
+          behaviour.
+
+          Measured before being added: the mapping decisions exist
+          ({!ExtractBuiltinLean} holds 47 [mk_trait_decl] entries, including the
+          [core::ops::function::Fn]/[FnMut]/[FnOnce] family) and there was no
+          recording site for any of them, because [record_builtin] was reachable
+          only from the type and function paths. Applied by every translation
+          that touches a closure, and reported nowhere. *)
+  | BuiltinTraitImpl  (** [@ExtractBuiltin] trait-implementation pattern. *)
 
 let kind_to_string (k : kind) : string =
   match k with
   | Primitive -> "primitive"
   | BuiltinType -> "builtin_type"
   | BuiltinFun -> "builtin_fun"
+  | BuiltinTraitDecl -> "builtin_trait_decl"
+  | BuiltinTraitImpl -> "builtin_trait_impl"
 
 (** How the Rust side of a correspondence is identified.
 
@@ -465,3 +484,97 @@ let record_variants ~(section : string) ~(def_id : int)
 (** The variant mapping recorded for a correspondence, if it is an enum. *)
 let variants_for (id : rust_identity) : variant_mapping list option =
   Hashtbl.find_opt applied_variants (rust_identity_key id)
+
+(* ------------------------------------------------------------------------ *)
+(* Withdrawals: semantic ERASURE as first-class evidence                    *)
+(*                                                                          *)
+(* CGR-M2 slice 11. A second population, and it is not a correspondence.    *)
+(*                                                                          *)
+(* Measured: a consumer derives its requirement population from the charon  *)
+(* `.llbc` — the crate BEFORE this translator's prepasses — while the       *)
+(* translation happens AFTER them. So the consumer sees requirements for    *)
+(* declarations the translation deliberately DELETED, and asks for          *)
+(* correspondences that cannot exist. `core::marker::Destruct` and its drop *)
+(* glue are the measured case.                                             *)
+(*                                                                          *)
+(* The tempting repair is for the consumer to keep a list of what this      *)
+(* translator filters and subtract it. That replaces one bad inference      *)
+(*                                                                          *)
+(*     the LLBC mentions Destruct, so a Destruct correspondence is required *)
+(*                                                                          *)
+(* with another                                                             *)
+(*                                                                          *)
+(*     Destruct is on our copied ignore list, so it does not matter         *)
+(*                                                                          *)
+(* and a copied list is a second copy of this translator's decision — the   *)
+(* thing this module exists to prevent. So the producer REPORTS its own     *)
+(* erasures, and the consumer reconciles against a measured population      *)
+(* instead of a transcribed one.                                            *)
+(*                                                                          *)
+(*     >  Semantic application and semantic erasure must EACH produce       *)
+(*     >  evidence from the operation itself, not from a second             *)
+(*     >  reconstruction of what supposedly happened.                       *)
+(* ------------------------------------------------------------------------ *)
+
+(** Why a declaration was erased. A stable CLASS, not a message.
+
+    Stable because it participates in the consumer's reuse identity: a producer
+    that stops erasing something, or erases it for a different reason, has
+    changed the semantics a proof was established under. A rendered English
+    sentence would make that identity a fact about wording. *)
+type withdrawal_class =
+  | MarkerTraitNoSemanticContent
+      (** A compiler-internal marker trait carrying no semantic content relevant
+          to verification, plus its impls and associated items. See
+          {!PrePasses.filter_marker_traits}, which is where the decision is made
+          and where this is recorded. *)
+
+let withdrawal_class_to_string (c : withdrawal_class) : string =
+  match c with
+  | MarkerTraitNoSemanticContent -> "marker_trait_no_semantic_content"
+
+type withdrawal = {
+  w_rust_identity : rust_identity;
+      (** The declaration erased. Structured, and the join key. *)
+  w_rust_rendered : string;  (** Charon's rendering. Diagnostics only. *)
+  w_class : withdrawal_class;
+  w_matched_pattern : string;
+      (** The filter's OWN key — the pattern that matched.
+
+          Part of the semantic identity rather than a diagnostic, because it is
+          what the producer used to decide. It is stable in the way a rendered
+          name is not: it is written in the filter, not derived from a printer. *)
+}
+
+let withdrawn : (string, withdrawal) Hashtbl.t = Hashtbl.create 32
+
+(** Record one erasure, at the point the declaration is actually removed.
+
+    Unconditional rather than gated on [-emit-json], matching {!record}: a rule
+    that only fires under a flag is a rule whose behaviour differs between the
+    run that was measured and the run that shipped. Not gated on the backend
+    either — an erasure is a fact about the crate, decided before any backend
+    is consulted. *)
+let record_withdrawal ~(section : string) ~(def_id : int)
+    ~(rust_rendered : string) ~(cls : withdrawal_class)
+    ~(matched_pattern : string) : unit =
+  let identity =
+    Declaration { section; def_id; source_file = ""; source_begin_line = 0 }
+  in
+  let key = rust_identity_key identity in
+  if not (Hashtbl.mem withdrawn key) then
+    Hashtbl.add withdrawn key
+      {
+        w_rust_identity = identity;
+        w_rust_rendered = rust_rendered;
+        w_class = cls;
+        w_matched_pattern = matched_pattern;
+      }
+
+(** Every declaration this translation erased, sorted for a stable export. *)
+let withdrawals () : withdrawal list =
+  Hashtbl.fold (fun _ w acc -> w :: acc) withdrawn []
+  |> List.sort (fun a b ->
+         compare
+           (rust_identity_key a.w_rust_identity)
+           (rust_identity_key b.w_rust_identity))
