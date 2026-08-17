@@ -9,7 +9,20 @@ open Result Error ScalarElab
 # Wrapping Add
 -/
 
-def UScalar.wrapping_add {ty} (x y : UScalar ty) : UScalar ty := ⟨ x.bv + y.bv ⟩
+/- CGR-M2 LIBRARY-ONLY C3 — THE PRECISION CONTROL. NOT AN UPSTREAM CHANGE.
+
+   A real semantic change to a model declaration the measured subject does NOT
+   consume. `panic_add_one` uses the panicking `+`, whose closure was measured
+   to contain `UScalar.add`/`tryMk` and NOT `wrapping_add`.
+
+   The body is rewritten to an equal-but-different expression, so the
+   declaration's VALUE genuinely differs while the function is extensionally the
+   same -- enough to move any hash over its structure, which is exactly what the
+   precision property must survive.
+
+   Without this arm the mechanism is a whole-library hash at finer scope, which
+   is the over-invalidation slice 9 removed. -/
+def UScalar.wrapping_add {ty} (x y : UScalar ty) : UScalar ty := ⟨ y.bv + x.bv ⟩
 
 def IScalar.wrapping_add {ty} (x y : IScalar ty) : IScalar ty := ⟨ x.bv + y.bv ⟩
 
