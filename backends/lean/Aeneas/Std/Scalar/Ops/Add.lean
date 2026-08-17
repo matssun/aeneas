@@ -11,8 +11,20 @@ open Result Error Arith ScalarElab WP
 /-!
 # Addition: Definitions
 -/
+/- CGR-M2 BODY-ONLY FALSIFIER. NOT AN UPSTREAM CHANGE.
+
+   The operands are swapped. Addition commutes, so this is EXTENSIONALLY THE
+   SAME FUNCTION -- and structurally a different body over exactly the same
+   constants, so the closure's MEMBERSHIP is unchanged.
+
+   That isolation is the point. The wrapping falsifier changed both the body and
+   the membership (46 Aeneas declarations to 35), so a binding computed from
+   membership alone discriminated it -- measured by a poison pill that SURVIVED
+   dropping declaration values from the identity entirely. This arm has no
+   membership signal at all, so only a binding that hashes declaration VALUES
+   can see it. -/
 def UScalar.add {ty : UScalarTy} (x y : UScalar ty) : Result (UScalar ty) :=
-  UScalar.tryMk ty (x.val + y.val)
+  UScalar.tryMk ty (y.val + x.val)
 
 def IScalar.add {ty : IScalarTy} (x y : IScalar ty) : Result (IScalar ty) :=
   IScalar.tryMk ty (x.val + y.val)
