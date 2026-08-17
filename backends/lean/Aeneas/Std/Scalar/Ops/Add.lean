@@ -11,8 +11,22 @@ open Result Error Arith ScalarElab WP
 /-!
 # Addition: Definitions
 -/
+/- CGR-M2 MODEL-SEMANTIC FALSIFIER. NOT AN UPSTREAM CHANGE.
+
+   Overflow-sensitive addition replaced by wrapping addition. `tryMk` returns
+   `fail integerOverflow` outside the range; this returns a value always.
+
+   The TRANSLATOR is untouched: Aeneas still emits the infix `+` for
+   `Add(OPanic, _)`, so the generated Lean is byte-identical to the baseline's.
+   Only what `+` DENOTES changes.
+
+   Exists to answer one question the epic has never measured: slice 9 demoted
+   producer-wide identity to provenance on evidence (C3) that varied the
+   TRANSLATOR, while every producer built since asserts `backends/lean`
+   byte-identical at install. So model-library semantic drift has never been
+   varied, and whether serving reuses evidence across it is unmeasured. -/
 def UScalar.add {ty : UScalarTy} (x y : UScalar ty) : Result (UScalar ty) :=
-  UScalar.tryMk ty (x.val + y.val)
+  ok ⟨ x.bv + y.bv ⟩
 
 def IScalar.add {ty : IScalarTy} (x y : IScalar ty) : Result (IScalar ty) :=
   IScalar.tryMk ty (x.val + y.val)
