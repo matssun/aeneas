@@ -11,6 +11,26 @@ open Result Error ScalarElab
 
 def UScalar.wrapping_add {ty} (x y : UScalar ty) : UScalar ty := ⟨ x.bv + y.bv ⟩
 
+/- CGR-M2 LIBRARY-ONLY C3 -- THE PRECISION CONTROL. NOT AN UPSTREAM CHANGE.
+
+   A real change to the model library that is OUTSIDE the measured subject's
+   closure. `panic_add_one` consumes the panicking add path (`UScalar.add`,
+   `tryMk`, `Result.ofOption`); nothing reaches this declaration.
+
+   An ADDED declaration rather than a mutated one, for a measured reason: every
+   arithmetic definition in this library carries spec lemmas that state its
+   denotation, so changing one falsifies its own specs and the library stops
+   building. Measured twice -- on `UScalar.add`, where the falsifier had to admit
+   three specs, and on `wrapping_add`, where two more broke. That self-checking
+   property is defence in depth, and it also makes mutating an unused
+   declaration in place surprisingly hard.
+
+   Still a genuine library change in the EXECUTION environment: the declaration
+   is elaborated and present, which the harness asserts POSITIVELY before
+   trusting the precision result. Without that assertion an inactive mutation
+   would masquerade as perfect precision. -/
+def UScalar.cgr_m2_c3_unused_marker {ty} (x : UScalar ty) : UScalar ty := ⟨ x.bv ⟩
+
 def IScalar.wrapping_add {ty} (x y : IScalar ty) : IScalar ty := ⟨ x.bv + y.bv ⟩
 
 uscalar @[step_pure_def]
