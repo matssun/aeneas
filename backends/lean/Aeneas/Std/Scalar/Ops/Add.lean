@@ -53,16 +53,17 @@ theorem UScalar.add_equiv {ty} (x y : UScalar ty) :
     z.bv = x.bv + y.bv
   | fail _ => ¬ (UScalar.inBounds ty (x.val + y.val))
   | _ => ⊥ := by
-  have : x + y = add x y := by rfl
-  rw [this]
-  simp [add]
-  have h := tryMk_eq ty (↑x + ↑y)
-  simp [inBounds] at h
-  split at h <;> simp_all
-  zify; simp
-  zify at h
-  have := @Int.emod_eq_of_lt (x.val + y.val) (2^ty.numBits) (by omega) (by omega)
-  simp [*]
+  -- CGR-M2 BODY-ONLY FALSIFIER. Unlike the wrapping falsifier, this lemma is
+  -- still TRUE -- addition commutes, so the swapped body denotes the same
+  -- function. Only the tactic script breaks, because it was written against the
+  -- `x.val + y.val` operand order. Admitted rather than repaired because the
+  -- experiment is about the BINDING, not about this proof, and repairing it
+  -- would add a second difference to an arm whose whole value is having exactly
+  -- one.
+  --
+  -- The distinction matters and is asserted downstream: the contract under test
+  -- must depend on NO sorryAx.
+  sorry
 
 theorem IScalar.add_equiv {ty} (x y : IScalar ty) :
   match x + y with
