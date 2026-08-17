@@ -1312,6 +1312,21 @@ let filter_type_aliases (crate : crate) : crate =
         false
     | _ -> false
   in
+  (* CGR-M2 slice 11: recorded from the same predicate that filters. Likely to
+     emit zero events on most crates, and that is the point — a zero here is a
+     MEASURED zero, where an uninstrumented pass is indistinguishable from one
+     that erased nothing. *)
+  let fmt_env = Print.crate_to_fmt_env crate in
+  TypeDeclId.Map.iter
+    (fun id (ty : type_decl) ->
+      if type_decl_is_alias ty then
+        Correspondence.record_withdrawal ~section:"type"
+          ~def_id:(TypeDeclId.to_int id)
+          ~rust_rendered:(Print.name_to_string fmt_env ty.item_meta.name)
+          ~cls:Correspondence.TypeAliasRemoved
+          ~matched_pattern:"<type alias; uses are normalised to the aliased type>"
+          ~span:ty.item_meta.span)
+    crate.type_decls;
   {
     crate with
     type_decls =
@@ -1843,11 +1858,42 @@ let replace_static (crate : crate) : crate =
     presence of those declarations leads to mutually recursive groups of traits
     and types. This micro-pass filters these definitions. *)
 let remove_vtables (crate : crate) : crate =
+  (* CGR-M2 slice 11. Recorded from the predicate that DECIDES the removal, so
+     the evidence and the act share one decision. A consumer derives its
+     requirement population from the pre-prepass LLBC, where these declarations
+     still exist; without this it asks for correspondences that cannot be. *)
+  let fmt_env = Print.crate_to_fmt_env crate in
+  let note_vtable (section : string) (def_id : int) (name : Types.name)
+      (span : Meta.span) : unit =
+    Correspondence.record_withdrawal ~section ~def_id
+      ~rust_rendered:(Print.name_to_string fmt_env name)
+      ~cls:Correspondence.VtableRemoved
+      ~matched_pattern:"<vtable introduced by charon for a dyn-capable trait>"
+      ~span
+  in
   let src_is_vtable (src : item_source) : bool =
     match src with
     | VTableInstanceItem _ | VTableTyItem _ | VTableMethodShimItem -> true
     | _ -> false
   in
+  TypeDeclId.Map.iter
+    (fun id (d : type_decl) ->
+      if src_is_vtable d.src then
+        note_vtable "type" (TypeDeclId.to_int id) d.item_meta.name
+          d.item_meta.span)
+    crate.type_decls;
+  GlobalDeclId.Map.iter
+    (fun id (d : global_decl) ->
+      if src_is_vtable d.src then
+        note_vtable "global" (GlobalDeclId.to_int id) d.item_meta.name
+          d.item_meta.span)
+    crate.global_decls;
+  FunDeclId.Map.iter
+    (fun id (d : fun_decl) ->
+      if src_is_vtable d.src then
+        note_vtable "function" (FunDeclId.to_int id) d.item_meta.name
+          d.item_meta.span)
+    crate.fun_decls;
 
   (* Filter the groups.
 
@@ -2099,6 +2145,23 @@ let simplify_trait_calls (crate : crate) : crate =
             if is_blanket_into_iter d.item_meta.name then (
               (* Replace the call by an assignment *)
               [%sanity_check] span (List.length call.args = 1);
+              (* CGR-M2 slice 11, THE CAUSE. Recorded here rather than at the
+                 pruning below, because the semantic fact is stronger than
+                 "became unused": the producer reduced this call to an identity,
+                 so the callee ceased to be REQUIRED. A revision that stopped
+                 doing so would change the semantic basis even if its pruning
+                 removed the same declaration for the weaker reason. *)
+              Correspondence.record_withdrawal ~section:"function"
+                ~def_id:(FunDeclId.to_int fid)
+                ~rust_rendered:
+                  (Print.name_to_string
+                     (Print.crate_to_fmt_env crate)
+                     d.item_meta.name)
+                ~cls:Correspondence.TraitCallSimplified
+                ~matched_pattern:
+                  "core::iter::traits::collect::{core::iter::traits::collect::IntoIterator<@I, \
+                   @Item, @I>}::into_iter"
+                ~span:d.item_meta.span;
               let arg = Use (List.hd call.args, NoRetag) in
               Assign (call.dest, arg))
             else if is_blanket_try_into d.item_meta.name then (
@@ -2250,6 +2313,33 @@ let simplify_trait_calls (crate : crate) : crate =
             visitor#visit_fun_decl_id () x.binder_value.id)
           impl.methods
   done;
+
+  (* CGR-M2 slice 11, THE CONSEQUENCE. Declarations the rewrite above orphaned.
+     A separate class from the cause on purpose: this one says only "nothing
+     reaches it any more", which is a weaker fact than "the producer reduced its
+     call to an identity", and a consumer's reuse identity should not confuse the
+     two. *)
+  let fmt_env = Print.crate_to_fmt_env crate in
+  FunDeclId.Map.iter
+    (fun id (d : fun_decl) ->
+      if not (FunDeclId.Set.mem id !used_funs) then
+        Correspondence.record_withdrawal ~section:"function"
+          ~def_id:(FunDeclId.to_int id)
+          ~rust_rendered:(Print.name_to_string fmt_env d.item_meta.name)
+          ~cls:Correspondence.UnusedAfterSemanticRewrite
+          ~matched_pattern:"<unreachable after a measured semantic rewrite>"
+          ~span:d.item_meta.span)
+    crate.fun_decls;
+  TraitImplId.Map.iter
+    (fun id (d : trait_impl) ->
+      if not (TraitImplId.Set.mem id !used_impls) then
+        Correspondence.record_withdrawal ~section:"trait_impl"
+          ~def_id:(TraitImplId.to_int id)
+          ~rust_rendered:(Print.name_to_string fmt_env d.item_meta.name)
+          ~cls:Correspondence.UnusedAfterSemanticRewrite
+          ~matched_pattern:"<unreachable after a measured semantic rewrite>"
+          ~span:d.item_meta.span)
+    crate.trait_impls;
 
   (* Filter the declaration groups we want to extract *)
   let keep_group (gr : declaration_group) : bool =

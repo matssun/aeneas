@@ -528,10 +528,35 @@ type withdrawal_class =
           to verification, plus its impls and associated items. See
           {!PrePasses.filter_marker_traits}, which is where the decision is made
           and where this is recorded. *)
+  | VtableRemoved
+      (** A vtable type or instance Charon introduces for a `dyn`-capable trait,
+          which this backend deliberately does not translate. See
+          {!PrePasses.remove_vtables}. *)
+  | TraitCallSimplified
+      (** The CAUSE. A blanket trait-impl call the producer reduced to an
+          identity operation, so the callee ceased to be required at all — not
+          merely dropped as unused.
+
+          Kept distinct from {!UnusedAfterSemanticRewrite} because it is a
+          stronger semantic fact and belongs in the consumer's reuse identity as
+          such: a future revision that no longer performs the reduction has
+          changed the semantic basis, even if its pruning machinery happens to
+          remove the same declaration for the weaker reason. *)
+  | UnusedAfterSemanticRewrite
+      (** The CONSEQUENCE. A declaration or impl that became unreachable after a
+          measured rewrite, and is dropped from the translated population for
+          that reason and no other. *)
+  | TypeAliasRemoved
+      (** A type alias, which carries no denotation of its own — uses are already
+          normalised to the aliased type. See {!PrePasses.filter_type_aliases}. *)
 
 let withdrawal_class_to_string (c : withdrawal_class) : string =
   match c with
   | MarkerTraitNoSemanticContent -> "marker_trait_no_semantic_content"
+  | VtableRemoved -> "vtable_removed"
+  | TraitCallSimplified -> "trait_call_simplified"
+  | UnusedAfterSemanticRewrite -> "unused_after_semantic_rewrite"
+  | TypeAliasRemoved -> "type_alias_removed"
 
 type withdrawal = {
   w_rust_identity : rust_identity;
