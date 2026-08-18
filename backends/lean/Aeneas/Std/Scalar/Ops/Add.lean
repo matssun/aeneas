@@ -11,8 +11,27 @@ open Result Error Arith ScalarElab WP
 /-!
 # Addition: Definitions
 -/
+/- CGR-M2 VALUE-ONLY SAFETY FALSIFIER. NOT AN UPSTREAM CHANGE.
+
+   `x.val + x.val` instead of `x.val + y.val`. The second operand is dropped, so
+   this is a SEMANTICALLY WRONG addition -- `0 + 1` returns `0`.
+
+   Chosen to satisfy three constraints at once, which is what makes it the arm
+   the other falsifiers could not be:
+
+     closure MEMBERSHIP   identical -- `y` is a bound variable, not a constant,
+                          so exactly the same constants are referenced
+     declaration TYPES    identical -- the signature is untouched
+     declaration VALUES   different
+     Rust-facing meaning  CHANGED, and independently falsifiable
+
+   The wrapping falsifier changes membership (46 Aeneas declarations to 35), so
+   a membership-only binding already catches it. The operand-swap falsifier is
+   extensionally the SAME function, so it proves the value component is active
+   without proving it is necessary for SAFETY. This arm is the one that makes
+   value sensitivity a safety property rather than a feature. -/
 def UScalar.add {ty : UScalarTy} (x y : UScalar ty) : Result (UScalar ty) :=
-  UScalar.tryMk ty (x.val + y.val)
+  UScalar.tryMk ty (x.val + x.val)
 
 def IScalar.add {ty : IScalarTy} (x y : IScalar ty) : Result (IScalar ty) :=
   IScalar.tryMk ty (x.val + y.val)
@@ -41,16 +60,11 @@ theorem UScalar.add_equiv {ty} (x y : UScalar ty) :
     z.bv = x.bv + y.bv
   | fail _ => ¬ (UScalar.inBounds ty (x.val + y.val))
   | _ => ⊥ := by
-  have : x + y = add x y := by rfl
-  rw [this]
-  simp [add]
-  have h := tryMk_eq ty (↑x + ↑y)
-  simp [inBounds] at h
-  split at h <;> simp_all
-  zify; simp
-  zify at h
-  have := @Int.emod_eq_of_lt (x.val + y.val) (2^ty.numBits) (by omega) (by omega)
-  simp [*]
+  -- CGR-M2 VALUE-ONLY FALSIFIER: this spec states the CORRECT denotation,
+  -- which the mutated `add` no longer has. FALSE under the mutation, like
+  -- the wrapping arm and unlike the operand-swap arm. Admitted, and the
+  -- contract under test is asserted to depend on no sorryAx.
+  sorry
 
 theorem IScalar.add_equiv {ty} (x y : IScalar ty) :
   match x + y with
@@ -80,10 +94,11 @@ integers and bit-vectors.
 theorem UScalar.add_bv_spec {ty} {x y : UScalar ty}
   (hmax : ↑x + ↑y ≤ UScalar.max ty) :
   x + y ⦃ z => (↑z : Nat) = ↑x + ↑y ∧ z.bv = x.bv + y.bv ⦄ := by
-  have h := @add_equiv ty x y
-  split at h <;> simp_all [max]
-  have : 0 < 2^ty.numBits := by simp
-  omega
+  -- CGR-M2 VALUE-ONLY FALSIFIER: this spec states the CORRECT denotation,
+  -- which the mutated `add` no longer has. FALSE under the mutation, like
+  -- the wrapping arm and unlike the operand-swap arm. Admitted, and the
+  -- contract under test is asserted to depend on no sorryAx.
+  sorry
 
 /-- Generic theorem - shouldn't be used much -/
 theorem IScalar.add_bv_spec {ty}  {x y : IScalar ty}
@@ -114,10 +129,11 @@ only integers. Those are the most common to use, so we mark them with the
 theorem UScalar.add_spec {ty} {x y : UScalar ty}
   (hmax : ↑x + ↑y ≤ UScalar.max ty) :
   x + y ⦃ z => (↑z : Nat) = ↑x + ↑y ⦄ := by
-  have h := @add_equiv ty x y
-  split at h <;> simp_all [max]
-  have : 0 < 2^ty.numBits := by simp
-  omega
+  -- CGR-M2 VALUE-ONLY FALSIFIER: this spec states the CORRECT denotation,
+  -- which the mutated `add` no longer has. FALSE under the mutation, like
+  -- the wrapping arm and unlike the operand-swap arm. Admitted, and the
+  -- contract under test is asserted to depend on no sorryAx.
+  sorry
 
 /-- Generic theorem - shouldn't be used much -/
 @[step]
