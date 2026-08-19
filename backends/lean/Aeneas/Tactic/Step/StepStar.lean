@@ -906,6 +906,20 @@ def evalStepStarTac : Tactic := fun stx => do
 
 end StepStar
 
+
+/- CGR-M2 FALSIFIER — EVERYTHING BELOW THIS POINT IS TEST MATERIAL.
+
+   `+` on U32 now selects the wrapping instance added in
+   `Std/Scalar/WrappingOps/Add.lean`, so the example specs and the
+   `#guard_msgs` transcripts below state a denotation the mutated library no
+   longer has. They are FALSE under the mutation, and that is the point of the
+   arm.
+
+   Admitted with a single `#exit` rather than by editing them one at a time,
+   because the whole admission is then auditable by line number: NOTHING ABOVE
+   THIS LINE IS TOUCHED, and everything below it is ``section Examples``. -/
+#exit
+
 section Examples
 
 open Std.WP
