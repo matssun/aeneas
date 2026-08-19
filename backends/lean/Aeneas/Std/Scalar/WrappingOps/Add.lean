@@ -79,4 +79,21 @@ iscalar @[simp, grind =, agrind =] theorem core.num.«%S».wrapping_add_val_eq (
   (core.num.«%S».wrapping_add x y).val = Int.bmod (x.val + y.val) (2^ %BitWidth) :=
   IScalar.wrapping_add_val_eq x y
 
+
+/-- FALSIFIER (codegraphite, instance-selection arm MS).
+
+    U32-SPECIFIC and higher priority than the anonymous generic
+    `instance {ty} : HAdd (UScalar ty) (UScalar ty) (Result (UScalar ty))` in
+    `Ops/Add.lean`, so `x + y` on `U32` resolves HERE instead -- to total
+    wrapping addition rather than the overflow-sensitive `UScalar.add`.
+
+    NOTHING EXISTING IS EDITED. That is the point of this arm: the drift is a
+    change of which declaration is SELECTED, not a change to the body of a
+    declaration already selected. `UScalar.add` keeps its identity, so a
+    consumer that froze the record-time member list and rehashed those same
+    names would find every one of them unchanged. -/
+instance (priority := 10000) hAddU32SelectionFalsifier :
+    HAdd U32 U32 (Result U32) where
+  hAdd x y := Result.ok (UScalar.wrapping_add x y)
+
 end Aeneas.Std
